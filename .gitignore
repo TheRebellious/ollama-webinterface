@@ -12,6 +12,7 @@ ENV/
 # Local environment/config
 .env
 .env.*
+config.json
 
 # Test/build artifacts
 .pytest_cache/

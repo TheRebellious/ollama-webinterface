@@ -2,9 +2,37 @@
 
 A small web interface for an Ollama server running inside a Debian container. It uses only the Python standard library, so there are no frontend build tools or Python packages to install.
 
-## Run
+## Install
 
 On the Debian container:
+
+```sh
+cd /home/ollama
+git clone https://github.com/TheRebellious/ollama-webinterface.git
+cd ollama-webinterface
+cp config.example.json config.json
+```
+
+Edit `config.json` if needed:
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "ollama_url": "http://127.0.0.1:11434",
+  "debug_shutdown": false
+}
+```
+
+By default the UI proxies Ollama at:
+
+```text
+http://127.0.0.1:11434
+```
+
+## Run Manually
+
+From the repository directory:
 
 ```sh
 python3 server.py
@@ -16,17 +44,13 @@ Open:
 http://SERVER_IP:8080
 ```
 
-By default the UI proxies Ollama at:
-
-```text
-http://127.0.0.1:11434
-```
-
-If Ollama is somewhere else:
+If you want to use a different config file:
 
 ```sh
-OLLAMA_URL=http://127.0.0.1:11434 python3 server.py --host 0.0.0.0 --port 8080
+python3 server.py --config /path/to/config.json
 ```
+
+`config.json` is ignored by git for local deployment changes. CLI flags and legacy environment variables still work as overrides.
 
 For local debugging, start it with an in-page exit button:
 
@@ -62,11 +86,23 @@ Each file is limited to 1 MB so prompts do not accidentally exceed the model con
 
 The sidebar shows live machine stats from `/api/system`, including CPU, memory, disk usage, load average, uptime, and NVIDIA GPU usage when `nvidia-smi` is available. The UI refreshes this every 5 seconds.
 
+## Model runtime
+
+The model selector shows whether the currently selected Ollama model is active or idle by polling `/api/ps`.
+
+## Mobile layout
+
+On narrow screens, the chat uses the full viewport and the settings/sidebar content moves into a slide-out panel. The app also includes a web app manifest and icon for mobile browser installation.
+
 ## Project structure
 
 ```text
 server.py                  Small entrypoint
 index.html                 Browser UI
+styles.css                 Browser UI styles
+manifest.webmanifest       Mobile install metadata
+icon.svg                   Mobile app icon
+config.example.json        Example deploy config
 ollama_console/config.py   CLI flags and defaults
 ollama_console/handler.py  HTTP routes and UI serving
 ollama_console/ollama.py   Ollama API proxying
@@ -84,9 +120,8 @@ Description=Ollama Console
 After=network.target ollama.service
 
 [Service]
-WorkingDirectory=/opt/ollama-console
-Environment=OLLAMA_URL=http://127.0.0.1:11434
-ExecStart=/usr/bin/python3 /opt/ollama-console/server.py --host 0.0.0.0 --port 8080
+WorkingDirectory=/home/ollama/ollama-webinterface
+ExecStart=/usr/bin/python3 /home/ollama/ollama-webinterface/server.py --config /home/ollama/ollama-webinterface/config.json
 Restart=always
 RestartSec=3
 
@@ -99,6 +134,21 @@ Then enable it:
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now ollama-console
+```
+
+Check logs/status:
+
+```sh
+sudo systemctl status ollama-console --no-pager -l
+sudo journalctl -u ollama-console -n 80 --no-pager
+```
+
+After pulling updates:
+
+```sh
+cd /home/ollama/ollama-webinterface
+git pull
+sudo systemctl restart ollama-console
 ```
 
 ## Firewall
