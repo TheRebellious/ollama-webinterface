@@ -14,7 +14,19 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
-            self.serve_index()
+            self.serve_file(self.config.index_path, "text/html; charset=utf-8")
+            return
+
+        if self.path == "/styles.css":
+            self.serve_file(self.config.styles_path, "text/css; charset=utf-8")
+            return
+
+        if self.path == "/manifest.webmanifest":
+            self.serve_file(self.config.manifest_path, "application/manifest+json")
+            return
+
+        if self.path == "/icon.svg":
+            self.serve_file(self.config.icon_path, "image/svg+xml")
             return
 
         if self.path == "/api/config":
@@ -23,6 +35,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/tags":
             proxy_ollama(self, "GET", "/api/tags")
+            return
+
+        if self.path == "/api/ps":
+            proxy_ollama(self, "GET", "/api/ps")
             return
 
         if self.path == "/api/system":
@@ -42,18 +58,18 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
 
         self.send_error(404, "Not found")
 
-    def serve_index(self):
+    def serve_file(self, path, content_type):
         try:
-            content = self.config.index_path.read_bytes()
+            content = path.read_bytes()
         except OSError as error:
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(f"Could not read index.html: {error}".encode("utf-8"))
+            self.wfile.write(f"Could not read {path.name}: {error}".encode("utf-8"))
             return
 
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
