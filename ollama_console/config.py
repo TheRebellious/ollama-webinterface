@@ -24,6 +24,7 @@ class ServerConfig:
     icon_path: Path
     styles_path: Path
     debug_shutdown: bool
+    upload_max_bytes: int
 
 
 def parse_args():
@@ -57,6 +58,7 @@ def build_config(args) -> ServerConfig:
         file_config.get("debug_shutdown"),
         False,
     ))
+    upload_max_mb = parse_int(first_value(file_config.get("upload_max_mb"), 10))
 
     return ServerConfig(
         host=str(host),
@@ -67,6 +69,7 @@ def build_config(args) -> ServerConfig:
         icon_path=DEFAULT_ICON_PATH,
         styles_path=DEFAULT_STYLES_PATH,
         debug_shutdown=debug_shutdown,
+        upload_max_bytes=int(upload_max_mb) * 1024 * 1024,
     )
 
 
@@ -82,7 +85,7 @@ def load_config_file(path: Path):
     if not isinstance(data, dict):
         raise SystemExit(f"Config file {path} must contain a JSON object")
 
-    allowed_keys = {"host", "port", "ollama_url", "debug_shutdown"}
+    allowed_keys = {"host", "port", "ollama_url", "debug_shutdown", "upload_max_mb"}
     unknown_keys = sorted(set(data) - allowed_keys)
     if unknown_keys:
         raise SystemExit(f"Unknown config keys in {path}: {', '.join(unknown_keys)}")
