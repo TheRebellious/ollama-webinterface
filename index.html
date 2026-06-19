@@ -35,6 +35,14 @@
           </div>
         </div>
 
+        <div class="field">
+          <label for="conversationSelect">Conversation</label>
+          <div class="conversation-controls">
+            <select id="conversationSelect"></select>
+            <button id="newConversation" type="button">New</button>
+          </div>
+        </div>
+
         <div class="row">
           <div class="field">
             <label for="temperature">Temperature</label>
@@ -137,9 +145,14 @@
     const state = {
       messages: [],
       attachments: [],
+      conversations: [],
+      conversationId: null,
       busy: false,
       online: false
     };
+
+    const conversationsKey = "ollama-console-conversations";
+    const currentConversationKey = "ollama-console-current-conversation";
 
     const allowedExtensions = new Set([
       "txt", "md", "markdown", "csv", "json", "jsonl", "log", "xml", "yaml", "yml",
@@ -154,6 +167,8 @@
       model: document.querySelector("#model"),
       modelRuntimeDot: document.querySelector("#modelRuntimeDot"),
       modelRuntimeText: document.querySelector("#modelRuntimeText"),
+      conversationSelect: document.querySelector("#conversationSelect"),
+      newConversation: document.querySelector("#newConversation"),
       activeModel: document.querySelector("#activeModel"),
       connectionStatus: document.querySelector("#connectionStatus"),
       statusDot: document.querySelector("#statusDot"),
@@ -221,11 +236,179 @@
         const meta = document.createElement("span");
         meta.className = "meta";
         meta.textContent = message.role === "user" ? "You" : "Ollama";
-        node.append(meta, document.createTextNode(message.displayContent || message.content));
+        const content = document.createElement("div");
+        content.className = "message-content";
+        content.innerHTML = renderMarkdown(message.displayContent || message.content);
+        node.append(meta, content);
         el.chat.appendChild(node);
       }
 
       el.chat.scrollTop = el.chat.scrollHeight;
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    function renderInlineMarkdown(value) {
+      return escapeHtml(value)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    }
+
+    function renderMarkdown(markdown) {
+      const parts = String(markdown || "").split(/```/);
+      return parts.map((part, index) => {
+        if (index % 2 === 1) {
+          return `<pre><code>${escapeHtml(part.trim())}</code></pre>`;
+        }
+
+        const lines = part.split("\n");
+        const blocks = [];
+        let list = [];
+        let paragraph = [];
+
+        function flushList() {
+          if (list.length) {
+            blocks.push(`<ul>${list.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+            list = [];
+          }
+        }
+
+        function flushParagraph() {
+          if (paragraph.length) {
+            blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+            paragraph = [];
+          }
+        }
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            flushList();
+            flushParagraph();
+            continue;
+          }
+
+          const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+          if (heading) {
+            flushList();
+            flushParagraph();
+            const level = heading[1].length + 2;
+            blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+          }
+
+          const item = trimmed.match(/^[-*]\s+(.+)$/);
+          if (item) {
+            flushParagraph();
+            list.push(item[1]);
+            continue;
+          }
+
+          flushList();
+          paragraph.push(trimmed);
+        }
+
+        flushList();
+        flushParagraph();
+        return blocks.join("");
+      }).join("");
+    }
+
+    function loadConversations() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(conversationsKey) || "[]");
+        state.conversations = Array.isArray(saved) ? saved : [];
+      } catch (error) {
+        state.conversations = [];
+      }
+
+      const currentId = localStorage.getItem(currentConversationKey);
+      if (state.conversations.some((conversation) => conversation.id === currentId)) {
+        loadConversation(currentId);
+        return;
+      }
+
+      createConversation();
+    }
+
+    function persistConversations() {
+      try {
+        localStorage.setItem(conversationsKey, JSON.stringify(state.conversations));
+        localStorage.setItem(currentConversationKey, state.conversationId);
+      } catch (error) {
+        console.warn("Could not save conversations", error);
+      }
+    }
+
+    function createConversation(title = "New chat", messages = []) {
+      const conversation = {
+        id: `${Date.now()}-${Math.random()}`,
+        title,
+        messages,
+        updatedAt: Date.now()
+      };
+      state.conversations.unshift(conversation);
+      state.conversationId = conversation.id;
+      state.messages = messages;
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
+    }
+
+    function currentConversation() {
+      return state.conversations.find((conversation) => conversation.id === state.conversationId);
+    }
+
+    function saveCurrentConversation() {
+      const conversation = currentConversation();
+      if (!conversation) return;
+
+      conversation.messages = state.messages;
+      conversation.updatedAt = Date.now();
+      if ((!conversation.title || conversation.title === "New chat") && state.messages.length) {
+        conversation.title = titleFromMessage(state.messages[0].displayContent || state.messages[0].content);
+      }
+
+      state.conversations.sort((a, b) => b.updatedAt - a.updatedAt);
+      persistConversations();
+      renderConversationSelect();
+    }
+
+    function titleFromMessage(message) {
+      const firstLine = String(message || "").split("\n").find((line) => line.trim()) || "New chat";
+      return firstLine.trim().slice(0, 54);
+    }
+
+    function renderConversationSelect() {
+      el.conversationSelect.innerHTML = "";
+      for (const conversation of state.conversations) {
+        const option = document.createElement("option");
+        option.value = conversation.id;
+        option.textContent = conversation.title || "New chat";
+        el.conversationSelect.appendChild(option);
+      }
+      el.conversationSelect.value = state.conversationId;
+    }
+
+    function loadConversation(id) {
+      const conversation = state.conversations.find((item) => item.id === id);
+      if (!conversation) return;
+
+      state.conversationId = conversation.id;
+      state.messages = conversation.messages || [];
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
     }
 
     function getExtension(fileName) {
@@ -506,6 +689,7 @@
       state.attachments = [];
       renderAttachments();
       renderMessages();
+      saveCurrentConversation();
       setBusy(true);
 
       const system = el.systemPrompt.value.trim();
@@ -516,6 +700,7 @@
       const assistant = { role: "assistant", content: "" };
       state.messages.push(assistant);
       renderMessages();
+      saveCurrentConversation();
 
       try {
         const res = await fetch("/api/chat", {
@@ -551,12 +736,14 @@
             if (part.message && part.message.content) {
               assistant.content += part.message.content;
               renderMessages();
+              saveCurrentConversation();
             }
           }
         }
       } catch (error) {
         assistant.content = `Request failed: ${error.message || error}`;
         renderMessages();
+        saveCurrentConversation();
       } finally {
         setBusy(false);
         loadRunningModels();
@@ -593,6 +780,15 @@
       setBusy(false);
     });
 
+    el.conversationSelect.addEventListener("change", () => {
+      loadConversation(el.conversationSelect.value);
+    });
+
+    el.newConversation.addEventListener("click", () => {
+      createConversation();
+      el.prompt.focus();
+    });
+
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
     el.fileInput.addEventListener("change", (event) => {
@@ -604,6 +800,7 @@
       state.attachments = [];
       renderAttachments();
       renderMessages();
+      saveCurrentConversation();
     });
 
     el.shutdownServer.addEventListener("click", shutdownServer);
@@ -617,7 +814,7 @@
       }
     });
 
-    renderMessages();
+    loadConversations();
     loadConfig();
     loadSystemInfo();
     setInterval(loadSystemInfo, 5000);
