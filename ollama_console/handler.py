@@ -2,6 +2,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler
 
+from .file_extract import FileExtractionError, extract_uploaded_file
 from .ollama import proxy_ollama
 from .system_info import get_system_info
 
@@ -30,7 +31,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/config":
-            self.send_json({"debugShutdown": self.config.debug_shutdown})
+            self.send_json({
+                "debugShutdown": self.config.debug_shutdown,
+                "uploadMaxBytes": self.config.upload_max_bytes,
+            })
             return
 
         if self.path == "/api/tags":
@@ -54,6 +58,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/shutdown":
             self.shutdown_server()
+            return
+
+        if self.path == "/api/extract":
+            self.extract_file()
             return
 
         self.send_error(404, "Not found")
@@ -83,6 +91,27 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+    def read_json(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("Request body must be valid JSON") from error
+
+    def extract_file(self):
+        try:
+            payload = self.read_json()
+            result = extract_uploaded_file(
+                payload.get("filename", ""),
+                payload.get("contentBase64", ""),
+                self.config.upload_max_bytes,
+            )
+        except (ValueError, FileExtractionError) as error:
+            self.send_json({"error": str(error)}, status=400)
+            return
+
+        self.send_json(result)
 
     def shutdown_server(self):
         if not self.config.debug_shutdown:
