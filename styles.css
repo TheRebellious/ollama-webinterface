@@ -158,6 +158,12 @@
       gap: 10px;
     }
 
+    .conversation-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
     .model-runtime {
       display: inline-flex;
       align-items: center;
@@ -437,6 +443,49 @@
     .message.assistant {
       align-self: flex-start;
       background: var(--panel);
+    }
+
+    .message-content {
+      display: grid;
+      gap: 10px;
+    }
+
+    .message-content p,
+    .message-content ul,
+    .message-content pre,
+    .message-content h3,
+    .message-content h4,
+    .message-content h5 {
+      margin: 0;
+    }
+
+    .message-content ul {
+      padding-left: 20px;
+    }
+
+    .message-content pre {
+      overflow-x: auto;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--input);
+    }
+
+    .message-content code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--input);
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: .92em;
+    }
+
+    .message-content pre code {
+      padding: 0;
+      background: transparent;
+    }
+
+    .message-content a {
+      color: var(--accent);
     }
 
     .meta {
