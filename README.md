@@ -20,7 +20,8 @@ Edit `config.json` if needed:
   "host": "0.0.0.0",
   "port": 8080,
   "ollama_url": "http://127.0.0.1:11434",
-  "debug_shutdown": false
+  "debug_shutdown": false,
+  "upload_max_mb": 10
 }
 ```
 
@@ -70,17 +71,17 @@ ollama pull llama3.1
 
 ## Upload files
 
-The UI can attach text-based files to your next message. Files are read in your browser and included as prompt context; they are not uploaded to storage on the Python server.
+The UI can attach files to your next message. Text-like files are read in your browser and included as prompt context. Office Open XML files are sent to the Python server for text extraction, but they are not stored.
 
 Supported base types include:
 
 ```text
 .txt, .md, .csv, .json, .jsonl, .log, .xml, .yaml, .yml,
 .toml, .ini, .conf, .cfg, source code files, shell scripts, SQL,
-Dockerfile, and .gitignore
+Dockerfile, .gitignore, .docx, .xlsx, and .pptx
 ```
 
-Each file is limited to 1 MB so prompts do not accidentally exceed the model context window.
+The default file limit is 10 MB. You can change it with `upload_max_mb` in `config.json`. Large files can still exceed the selected model's context window after text extraction.
 
 ## Machine stats
 

@@ -35,6 +35,14 @@
           </div>
         </div>
 
+        <div class="field">
+          <label for="conversationSelect">Conversation</label>
+          <div class="conversation-controls">
+            <select id="conversationSelect"></select>
+            <button id="newConversation" type="button">New</button>
+          </div>
+        </div>
+
         <div class="row">
           <div class="field">
             <label for="temperature">Temperature</label>
@@ -54,9 +62,9 @@
         <div class="field">
           <label for="fileInput">Files</label>
           <div class="file-picker">
-            <input id="fileInput" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.jsonl,.log,.xml,.yaml,.yml,.toml,.ini,.conf,.cfg,.py,.js,.ts,.tsx,.jsx,.html,.css,.sh,.ps1,.sql,.java,.c,.cpp,.h,.hpp,.cs,.go,.rs,.php,.rb,.swift,.kt,.kts,.r,.lua,.dockerfile,.gitignore">
+            <input id="fileInput" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.jsonl,.log,.xml,.yaml,.yml,.toml,.ini,.conf,.cfg,.py,.js,.ts,.tsx,.jsx,.html,.css,.sh,.ps1,.sql,.java,.c,.cpp,.h,.hpp,.cs,.go,.rs,.php,.rb,.swift,.kt,.kts,.r,.lua,.dockerfile,.gitignore,.docx,.xlsx,.pptx">
             <label class="file-button" for="fileInput">Attach files</label>
-            <p class="file-help">Text, markdown, CSV, JSON, logs, config, and code files. Max 1 MB each.</p>
+            <p class="file-help" id="fileHelp">Text, markdown, CSV, JSON, logs, config, code, DOCX, XLSX, and PPTX files.</p>
             <div id="attachments" class="attachments"></div>
             <div id="attachmentNote" class="attachment-note"></div>
           </div>
@@ -137,23 +145,32 @@
     const state = {
       messages: [],
       attachments: [],
+      conversations: [],
+      conversationId: null,
       busy: false,
       online: false
     };
+
+    const conversationsKey = "ollama-console-conversations";
+    const currentConversationKey = "ollama-console-current-conversation";
 
     const allowedExtensions = new Set([
       "txt", "md", "markdown", "csv", "json", "jsonl", "log", "xml", "yaml", "yml",
       "toml", "ini", "conf", "cfg", "py", "js", "ts", "tsx", "jsx", "html", "css",
       "sh", "ps1", "sql", "java", "c", "cpp", "h", "hpp", "cs", "go", "rs", "php",
-      "rb", "swift", "kt", "kts", "r", "lua", "dockerfile", "gitignore"
+      "rb", "swift", "kt", "kts", "r", "lua", "dockerfile", "gitignore",
+      "docx", "xlsx", "pptx"
     ]);
-    const maxFileBytes = 1024 * 1024;
+    const officeExtensions = new Set(["docx", "xlsx", "pptx"]);
+    let maxFileBytes = 10 * 1024 * 1024;
 
     const el = {
       app: document.querySelector("#app"),
       model: document.querySelector("#model"),
       modelRuntimeDot: document.querySelector("#modelRuntimeDot"),
       modelRuntimeText: document.querySelector("#modelRuntimeText"),
+      conversationSelect: document.querySelector("#conversationSelect"),
+      newConversation: document.querySelector("#newConversation"),
       activeModel: document.querySelector("#activeModel"),
       connectionStatus: document.querySelector("#connectionStatus"),
       statusDot: document.querySelector("#statusDot"),
@@ -167,6 +184,7 @@
       prompt: document.querySelector("#prompt"),
       send: document.querySelector("#send"),
       fileInput: document.querySelector("#fileInput"),
+      fileHelp: document.querySelector("#fileHelp"),
       attachments: document.querySelector("#attachments"),
       attachmentNote: document.querySelector("#attachmentNote"),
       systemHost: document.querySelector("#systemHost"),
@@ -221,11 +239,308 @@
         const meta = document.createElement("span");
         meta.className = "meta";
         meta.textContent = message.role === "user" ? "You" : "Ollama";
-        node.append(meta, document.createTextNode(message.displayContent || message.content));
+        const content = document.createElement("div");
+        content.className = "message-content";
+        content.innerHTML = renderMarkdown(message.displayContent || message.content);
+        node.append(meta, content);
         el.chat.appendChild(node);
       }
 
       el.chat.scrollTop = el.chat.scrollHeight;
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    function renderInlineMarkdown(value) {
+      return escapeHtml(value)
+        .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
+        .replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (match, alt, id) => {
+          const url = markdownReferences[id.toLowerCase()];
+          return url ? `<img src="${url}" alt="${alt}" loading="lazy">` : match;
+        })
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+        .replace(/\[([^\]]+)\]\[([^\]]+)\]/g, (match, text, id) => {
+          const url = markdownReferences[id.toLowerCase()];
+          return url ? `<a href="${url}" target="_blank" rel="noreferrer">${text}</a>` : match;
+        })
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/_([^_]+)_/g, "<em>$1</em>");
+    }
+
+    const markdownReferences = {};
+
+    function renderMarkdown(markdown) {
+      const source = String(markdown || "").replace(/\r\n/g, "\n");
+      const referencePattern = /^\s*\[([^\]]+)\]:\s*(https?:\/\/\S+)\s*$/gm;
+      for (const key of Object.keys(markdownReferences)) delete markdownReferences[key];
+
+      let referenceMatch;
+      while ((referenceMatch = referencePattern.exec(source)) !== null) {
+        markdownReferences[referenceMatch[1].toLowerCase()] = escapeHtml(referenceMatch[2]);
+      }
+
+      const cleaned = source.replace(referencePattern, "");
+      const parts = cleaned.split(/```/);
+      return parts.map((part, index) => {
+        if (index % 2 === 1) {
+          const lines = part.replace(/^\n/, "").split("\n");
+          const language = (lines[0] || "").trim();
+          const hasLanguage = /^[A-Za-z0-9_+#.-]+$/.test(language);
+          const code = hasLanguage ? lines.slice(1).join("\n") : part;
+          const className = hasLanguage ? ` class="language-${escapeHtml(language)}"` : "";
+          const label = hasLanguage ? `<span class="code-language">${escapeHtml(language)}</span>` : "";
+          return `<pre>${label}<code${className}>${highlightCode(code.trim(), language)}</code></pre>`;
+        }
+
+        const lines = part.split("\n");
+        const blocks = [];
+        let list = null;
+        let paragraph = [];
+
+        function flushList() {
+          if (list && list.items.length) {
+            const tag = list.type === "ol" ? "ol" : "ul";
+            blocks.push(`<${tag}>${list.items.join("")}</${tag}>`);
+            list = null;
+          }
+        }
+
+        function flushParagraph() {
+          if (paragraph.length) {
+            blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+            paragraph = [];
+          }
+        }
+
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index];
+          const trimmed = line.trim();
+          if (!trimmed) {
+            flushList();
+            flushParagraph();
+            continue;
+          }
+
+          if (isTableStart(lines, index)) {
+            flushList();
+            flushParagraph();
+            const tableRows = [lines[index], lines[index + 1]];
+            index += 2;
+            while (index < lines.length && isTableRow(lines[index])) {
+              tableRows.push(lines[index]);
+              index += 1;
+            }
+            index -= 1;
+            blocks.push(renderTable(tableRows));
+            continue;
+          }
+
+          const quote = trimmed.match(/^>\s?(.*)$/);
+          if (quote) {
+            flushList();
+            flushParagraph();
+            const quoteLines = [quote[1]];
+            while (index + 1 < lines.length) {
+              const next = lines[index + 1].trim().match(/^>\s?(.*)$/);
+              if (!next) break;
+              quoteLines.push(next[1]);
+              index += 1;
+            }
+            blocks.push(`<blockquote>${renderQuoteLines(quoteLines)}</blockquote>`);
+            continue;
+          }
+
+          const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+          if (heading) {
+            flushList();
+            flushParagraph();
+            const level = heading[1].length;
+            blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+          }
+
+          const task = trimmed.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
+          if (task) {
+            flushParagraph();
+            if (!list || list.type !== "ul") {
+              flushList();
+              list = { type: "ul", items: [] };
+            }
+            const checked = task[1].toLowerCase() === "x" ? " checked" : "";
+            list.items.push(`<li class="task-item"><input type="checkbox" disabled${checked}> ${renderInlineMarkdown(task[2])}</li>`);
+            continue;
+          }
+
+          const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+          if (unordered) {
+            flushParagraph();
+            if (!list || list.type !== "ul") {
+              flushList();
+              list = { type: "ul", items: [] };
+            }
+            list.items.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+            continue;
+          }
+
+          const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+          if (ordered) {
+            flushParagraph();
+            if (!list || list.type !== "ol") {
+              flushList();
+              list = { type: "ol", items: [] };
+            }
+            list.items.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+            continue;
+          }
+
+          flushList();
+          paragraph.push(trimmed);
+        }
+
+        flushList();
+        flushParagraph();
+        return blocks.join("");
+      }).join("");
+    }
+
+    function highlightCode(code, language) {
+      let highlighted = escapeHtml(code);
+      const normalized = String(language || "").toLowerCase();
+      if (["js", "javascript", "ts", "typescript", "python", "py", "json", "sh", "bash"].includes(normalized)) {
+        highlighted = highlighted.replace(/\b(const|let|var|function|return|if|else|for|while|class|import|from|def|try|except|with|as|true|false|null|none|and|or|not|await|async)\b/g, '<span class="code-keyword">$1</span>');
+        highlighted = highlighted.replace(/(&quot;.*?&quot;|'.*?')/g, '<span class="code-string">$1</span>');
+        highlighted = highlighted.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-number">$1</span>');
+      }
+      return highlighted;
+    }
+
+    function renderQuoteLines(lines) {
+      return lines
+        .join("\n")
+        .split(/\n\s*\n/)
+        .map((paragraph) => `<p>${renderInlineMarkdown(paragraph.replace(/\n/g, " ").trim())}</p>`)
+        .join("");
+    }
+
+    function isTableRow(line) {
+      return /^\s*\|.+\|\s*$/.test(line);
+    }
+
+    function isTableStart(lines, index) {
+      if (!isTableRow(lines[index] || "") || !isTableRow(lines[index + 1] || "")) return false;
+      return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1]);
+    }
+
+    function renderTable(rows) {
+      const headers = splitTableRow(rows[0]);
+      const bodyRows = rows.slice(2).map(splitTableRow);
+      const headerHtml = headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("");
+      const bodyHtml = bodyRows.map((row) => {
+        return `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`;
+      }).join("");
+      return `<div class="table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+    }
+
+    function splitTableRow(row) {
+      return row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+    }
+
+    function loadConversations() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(conversationsKey) || "[]");
+        state.conversations = Array.isArray(saved) ? saved : [];
+      } catch (error) {
+        state.conversations = [];
+      }
+
+      const currentId = localStorage.getItem(currentConversationKey);
+      if (state.conversations.some((conversation) => conversation.id === currentId)) {
+        loadConversation(currentId);
+        return;
+      }
+
+      createConversation();
+    }
+
+    function persistConversations() {
+      try {
+        localStorage.setItem(conversationsKey, JSON.stringify(state.conversations));
+        localStorage.setItem(currentConversationKey, state.conversationId);
+      } catch (error) {
+        console.warn("Could not save conversations", error);
+      }
+    }
+
+    function createConversation(title = "New chat", messages = []) {
+      const conversation = {
+        id: `${Date.now()}-${Math.random()}`,
+        title,
+        messages,
+        updatedAt: Date.now()
+      };
+      state.conversations.unshift(conversation);
+      state.conversationId = conversation.id;
+      state.messages = messages;
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
+    }
+
+    function currentConversation() {
+      return state.conversations.find((conversation) => conversation.id === state.conversationId);
+    }
+
+    function saveCurrentConversation() {
+      const conversation = currentConversation();
+      if (!conversation) return;
+
+      conversation.messages = state.messages;
+      conversation.updatedAt = Date.now();
+      if ((!conversation.title || conversation.title === "New chat") && state.messages.length) {
+        conversation.title = titleFromMessage(state.messages[0].displayContent || state.messages[0].content);
+      }
+
+      state.conversations.sort((a, b) => b.updatedAt - a.updatedAt);
+      persistConversations();
+      renderConversationSelect();
+    }
+
+    function titleFromMessage(message) {
+      const firstLine = String(message || "").split("\n").find((line) => line.trim()) || "New chat";
+      return firstLine.trim().slice(0, 54);
+    }
+
+    function renderConversationSelect() {
+      el.conversationSelect.innerHTML = "";
+      for (const conversation of state.conversations) {
+        const option = document.createElement("option");
+        option.value = conversation.id;
+        option.textContent = conversation.title || "New chat";
+        el.conversationSelect.appendChild(option);
+      }
+      el.conversationSelect.value = state.conversationId;
+    }
+
+    function loadConversation(id) {
+      const conversation = state.conversations.find((item) => item.id === id);
+      if (!conversation) return;
+
+      state.conversationId = conversation.id;
+      state.messages = conversation.messages || [];
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
     }
 
     function getExtension(fileName) {
@@ -356,7 +671,9 @@
         }
 
         try {
-          const content = await file.text();
+          const content = officeExtensions.has(extension)
+            ? await extractOfficeFile(file)
+            : await file.text();
           state.attachments.push({
             id: `${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${Math.random()}`,
             name: file.name,
@@ -376,12 +693,48 @@
       }
     }
 
+    async function extractOfficeFile(file) {
+      const contentBase64 = await fileToBase64(file);
+      const res = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentBase64
+        })
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || "Office document could not be extracted");
+      }
+
+      const payload = await res.json();
+      return payload.content || "";
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          const result = String(reader.result || "");
+          resolve(result.includes(",") ? result.split(",", 2)[1] : result);
+        });
+        reader.addEventListener("error", () => reject(reader.error));
+        reader.readAsDataURL(file);
+      });
+    }
+
     async function loadConfig() {
       try {
         const res = await fetch("/api/config");
         if (!res.ok) return;
         const config = await res.json();
         el.shutdownServer.classList.toggle("hidden", !config.debugShutdown);
+        if (config.uploadMaxBytes) {
+          maxFileBytes = config.uploadMaxBytes;
+          el.fileHelp.textContent = `Text, markdown, CSV, JSON, logs, config, code, DOCX, XLSX, and PPTX files. Max ${formatLargeBytes(maxFileBytes)} each.`;
+        }
       } catch (error) {
         el.shutdownServer.classList.add("hidden");
       }
@@ -433,13 +786,25 @@
 
     async function loadModels() {
       setStatus("", "Checking server...");
+      const previousSelection = el.model.value;
       el.model.innerHTML = "";
 
       try {
-        const res = await fetch("/api/tags");
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const models = (data.models || []).map((model) => model.name).sort();
+        const [tagsRes, runningNames] = await Promise.all([
+          fetch("/api/tags"),
+          fetchRunningModelNames()
+        ]);
+        if (!tagsRes.ok) throw new Error(await tagsRes.text());
+        const data = await tagsRes.json();
+        const running = new Set(runningNames);
+        const models = (data.models || [])
+          .map((model) => model.name)
+          .sort((first, second) => {
+            const firstRunning = running.has(first);
+            const secondRunning = running.has(second);
+            if (firstRunning !== secondRunning) return firstRunning ? -1 : 1;
+            return first.localeCompare(second);
+          });
 
         if (models.length === 0) {
           setStatus("bad", "No models found");
@@ -451,8 +816,14 @@
         for (const name of models) {
           const option = document.createElement("option");
           option.value = name;
-          option.textContent = name;
+          option.textContent = running.has(name) ? `${name} (active)` : name;
           el.model.appendChild(option);
+        }
+
+        if (models.includes(previousSelection)) {
+          el.model.value = previousSelection;
+        } else if (runningNames.length && models.includes(runningNames[0])) {
+          el.model.value = runningNames[0];
         }
 
         setStatus("ok", "Connected");
@@ -467,6 +838,17 @@
       }
     }
 
+    async function fetchRunningModelNames() {
+      try {
+        const res = await fetch("/api/ps");
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.models || []).map((model) => model.name).filter(Boolean);
+      } catch (error) {
+        return [];
+      }
+    }
+
     async function loadRunningModels() {
       if (!el.model.value) {
         setModelRuntime("", "No model selected");
@@ -474,10 +856,7 @@
       }
 
       try {
-        const res = await fetch("/api/ps");
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const running = (data.models || []).map((model) => model.name);
+        const running = await fetchRunningModelNames();
         const selected = el.model.value;
         const isRunning = running.some((name) => name === selected);
 
@@ -506,6 +885,7 @@
       state.attachments = [];
       renderAttachments();
       renderMessages();
+      saveCurrentConversation();
       setBusy(true);
 
       const system = el.systemPrompt.value.trim();
@@ -516,6 +896,7 @@
       const assistant = { role: "assistant", content: "" };
       state.messages.push(assistant);
       renderMessages();
+      saveCurrentConversation();
 
       try {
         const res = await fetch("/api/chat", {
@@ -551,12 +932,14 @@
             if (part.message && part.message.content) {
               assistant.content += part.message.content;
               renderMessages();
+              saveCurrentConversation();
             }
           }
         }
       } catch (error) {
         assistant.content = `Request failed: ${error.message || error}`;
         renderMessages();
+        saveCurrentConversation();
       } finally {
         setBusy(false);
         loadRunningModels();
@@ -593,6 +976,15 @@
       setBusy(false);
     });
 
+    el.conversationSelect.addEventListener("change", () => {
+      loadConversation(el.conversationSelect.value);
+    });
+
+    el.newConversation.addEventListener("click", () => {
+      createConversation();
+      el.prompt.focus();
+    });
+
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
     el.fileInput.addEventListener("change", (event) => {
@@ -604,6 +996,7 @@
       state.attachments = [];
       renderAttachments();
       renderMessages();
+      saveCurrentConversation();
     });
 
     el.shutdownServer.addEventListener("click", shutdownServer);
@@ -617,7 +1010,7 @@
       }
     });
 
-    renderMessages();
+    loadConversations();
     loadConfig();
     loadSystemInfo();
     setInterval(loadSystemInfo, 5000);
