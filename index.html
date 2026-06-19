@@ -433,13 +433,25 @@
 
     async function loadModels() {
       setStatus("", "Checking server...");
+      const previousSelection = el.model.value;
       el.model.innerHTML = "";
 
       try {
-        const res = await fetch("/api/tags");
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const models = (data.models || []).map((model) => model.name).sort();
+        const [tagsRes, runningNames] = await Promise.all([
+          fetch("/api/tags"),
+          fetchRunningModelNames()
+        ]);
+        if (!tagsRes.ok) throw new Error(await tagsRes.text());
+        const data = await tagsRes.json();
+        const running = new Set(runningNames);
+        const models = (data.models || [])
+          .map((model) => model.name)
+          .sort((first, second) => {
+            const firstRunning = running.has(first);
+            const secondRunning = running.has(second);
+            if (firstRunning !== secondRunning) return firstRunning ? -1 : 1;
+            return first.localeCompare(second);
+          });
 
         if (models.length === 0) {
           setStatus("bad", "No models found");
@@ -451,8 +463,14 @@
         for (const name of models) {
           const option = document.createElement("option");
           option.value = name;
-          option.textContent = name;
+          option.textContent = running.has(name) ? `${name} (active)` : name;
           el.model.appendChild(option);
+        }
+
+        if (models.includes(previousSelection)) {
+          el.model.value = previousSelection;
+        } else if (runningNames.length && models.includes(runningNames[0])) {
+          el.model.value = runningNames[0];
         }
 
         setStatus("ok", "Connected");
@@ -467,6 +485,17 @@
       }
     }
 
+    async function fetchRunningModelNames() {
+      try {
+        const res = await fetch("/api/ps");
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.models || []).map((model) => model.name).filter(Boolean);
+      } catch (error) {
+        return [];
+      }
+    }
+
     async function loadRunningModels() {
       if (!el.model.value) {
         setModelRuntime("", "No model selected");
@@ -474,10 +503,7 @@
       }
 
       try {
-        const res = await fetch("/api/ps");
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const running = (data.models || []).map((model) => model.name);
+        const running = await fetchRunningModelNames();
         const selected = el.model.value;
         const isRunning = running.some((name) => name === selected);
 
