@@ -22,6 +22,7 @@
           <h1>Ollama Console</h1>
           <div id="connectionStatus" class="status">Checking server...</div>
         </div>
+        <button id="collapseSidebar" class="icon-button sidebar-toggle" type="button" title="Collapse settings">&lt;</button>
         <button id="closeSettings" class="icon-button panel-close" type="button" title="Close settings">x</button>
       </div>
 
@@ -143,6 +144,7 @@
           <span>Chat with the Ollama instance running in this container.</span>
         </div>
         <div class="topbar-actions">
+          <button id="expandSidebar" class="settings-button" type="button">Settings</button>
           <div class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Connecting</span></div>
           <button id="openSettings" class="icon-button mobile-menu" type="button" title="Open settings">M</button>
         </div>
@@ -228,6 +230,8 @@
       refreshModels: document.querySelector("#refreshModels"),
       clearChat: document.querySelector("#clearChat"),
       shutdownServer: document.querySelector("#shutdownServer"),
+      collapseSidebar: document.querySelector("#collapseSidebar"),
+      expandSidebar: document.querySelector("#expandSidebar"),
       openSettings: document.querySelector("#openSettings"),
       closeSettings: document.querySelector("#closeSettings"),
       settingsOverlay: document.querySelector("#settingsOverlay")
@@ -256,6 +260,10 @@
 
     function setSettingsOpen(isOpen) {
       el.app.classList.toggle("settings-open", isOpen);
+    }
+
+    function setSidebarCollapsed(isCollapsed) {
+      el.app.classList.toggle("sidebar-collapsed", isCollapsed);
     }
 
     function setModelRuntime(kind, text) {
@@ -1181,6 +1189,8 @@
     });
 
     el.shutdownServer.addEventListener("click", shutdownServer);
+    el.collapseSidebar.addEventListener("click", () => setSidebarCollapsed(true));
+    el.expandSidebar.addEventListener("click", () => setSidebarCollapsed(false));
     el.openSettings.addEventListener("click", () => setSettingsOpen(true));
     el.closeSettings.addEventListener("click", () => setSettingsOpen(false));
     el.settingsOverlay.addEventListener("click", () => setSettingsOpen(false));
