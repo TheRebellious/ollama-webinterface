@@ -160,8 +160,15 @@
 
     .conversation-controls {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 8px;
+    }
+
+    .control-help {
+      margin: -2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
     }
 
     .model-runtime {
@@ -272,6 +279,11 @@
       display: grid;
       place-items: center;
       color: var(--danger);
+    }
+
+    .icon-button.mobile-menu,
+    .icon-button.panel-close {
+      display: none;
     }
 
     .attachment-note {
@@ -646,6 +658,27 @@
     .dot.ok { background: var(--accent); }
     .dot.bad { background: var(--danger); }
 
+    .dot.loading {
+      background: var(--accent-2);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .app.is-busy .pill {
+      border-color: rgba(244, 185, 95, .78);
+      color: var(--text);
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: .45;
+        transform: scale(.85);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.18);
+      }
+    }
+
     @media (max-width: 820px) {
       body {
         height: 100svh;
@@ -695,8 +728,8 @@
         flex: 1;
       }
 
-      .panel-close,
-      .mobile-menu {
+      .icon-button.panel-close,
+      .icon-button.mobile-menu {
         display: grid;
       }
 
