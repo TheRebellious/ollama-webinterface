@@ -1154,15 +1154,44 @@
         }
       }
 
-      return parseContextFromParameters(data.parameters || "");
+      const nestedContext = findNestedContextTokens(modelInfo);
+      if (nestedContext) return nestedContext;
+
+      // Older Ollama versions return model settings in `modelfile` rather
+      // than the newer top-level `parameters` field.
+      for (const source of [data.parameters, data.modelfile, details.parameters]) {
+        const parsed = parseContextFromParameters(source);
+        if (parsed) return parsed;
+      }
+      return null;
+    }
+
+    function findNestedContextTokens(value) {
+      if (!value || typeof value !== "object") return null;
+
+      for (const [key, item] of Object.entries(value)) {
+        const normalizedKey = key.toLowerCase();
+        if (
+          normalizedKey === "num_ctx" ||
+          normalizedKey === "context_length" ||
+          normalizedKey.endsWith(".context_length")
+        ) {
+          const parsed = parseContextNumber(item);
+          if (parsed) return parsed;
+        }
+
+        const nested = findNestedContextTokens(item);
+        if (nested) return nested;
+      }
+      return null;
     }
 
     function parseContextFromParameters(parameters) {
       const text = String(parameters || "");
       const patterns = [
-        /num_ctx\s+(\d+)/i,
-        /context_length\s+(\d+)/i,
-        /context\s+length\s+(\d+)/i
+        /\bnum_ctx\b\s*(?:=|:)?\s*(\d+)/i,
+        /\bcontext_length\b\s*(?:=|:)?\s*(\d+)/i,
+        /\bcontext\s+length\b\s*(?:=|:)?\s*(\d+)/i
       ];
 
       for (const pattern of patterns) {
