@@ -218,12 +218,105 @@ def get_nvidia_gpu_info():
 
 
 def get_amd_gpu_info():
-    for detector in (get_amd_gpu_info_from_amd_smi, get_amd_gpu_info_from_rocm_smi):
-        gpus = detector()
-        if gpus:
-            return gpus
+    gpus = []
+    for detector in (
+        get_amd_gpu_info_from_lspci,
+        get_amd_gpu_info_from_windows_video,
+        get_amd_gpu_info_from_amd_smi,
+        get_amd_gpu_info_from_rocm_smi,
+        get_amd_gpu_info_from_sysfs,
+    ):
+        gpus.extend(detector())
 
-    return get_amd_gpu_info_from_sysfs()
+    return dedupe_gpus(gpus)
+
+
+def get_amd_gpu_info_from_lspci():
+    if not shutil.which("lspci"):
+        return []
+
+    for command in (["lspci", "-D", "-nn"], ["lspci", "-nn"]):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=2, check=True)
+            break
+        except (OSError, subprocess.SubprocessError):
+            result = None
+
+    if result is None:
+        return []
+
+    gpus = []
+    for line in result.stdout.splitlines():
+        lowered = line.lower()
+        is_display_device = any(
+            marker in lowered
+            for marker in ("vga compatible controller", "3d controller", "display controller")
+        )
+        is_amd = any(marker in lowered for marker in ("amd/ati", "advanced micro devices", "ati technologies"))
+        if not is_display_device or not is_amd:
+            continue
+
+        address, name = parse_lspci_gpu_line(line)
+        gpus.append({
+            "vendor": "AMD",
+            "name": name,
+            "pciAddress": address,
+            "memoryTotalMb": None,
+            "memoryUsedMb": None,
+            "utilizationPercent": None,
+        })
+
+    return gpus
+
+
+def get_amd_gpu_info_from_windows_video():
+    if platform.system().lower() != "windows":
+        return []
+
+    try:
+        result = subprocess.run(
+            ["wmic", "path", "win32_VideoController", "get", "Name,AdapterRAM", "/Value"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    gpus = []
+    current = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            if current:
+                append_windows_amd_gpu(gpus, current)
+                current = {}
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        current[key.strip()] = value.strip()
+
+    if current:
+        append_windows_amd_gpu(gpus, current)
+
+    return gpus
+
+
+def append_windows_amd_gpu(gpus, data):
+    name = data.get("Name", "")
+    if not any(marker in name.lower() for marker in ("amd", "radeon")):
+        return
+
+    adapter_ram = parse_int(data.get("AdapterRAM", ""))
+    gpus.append({
+        "vendor": "AMD",
+        "name": name or "AMD GPU",
+        "memoryTotalMb": round(adapter_ram / (1024 * 1024)) if adapter_ram else None,
+        "memoryUsedMb": None,
+        "utilizationPercent": None,
+    })
 
 
 def get_amd_gpu_info_from_amd_smi():
@@ -312,10 +405,15 @@ def get_amd_gpu_info_from_sysfs():
         if vendor != "0x1002":
             continue
 
+        device_id = read_first_existing(card / "device" / "device")
         name = read_first_existing(card / "device" / "product_name", card / "device" / "product_number")
+        if not name and device_id:
+            name = f"AMD GPU {card.name} ({device_id})"
         gpus.append({
             "vendor": "AMD",
             "name": name or f"AMD GPU {card.name}",
+            "pciAddress": read_pci_address(card),
+            "deviceId": device_id,
             "memoryTotalMb": None,
             "memoryUsedMb": None,
             "utilizationPercent": None,
@@ -327,10 +425,47 @@ def get_amd_gpu_info_from_sysfs():
 def parse_card_id(line):
     for token in line.replace(":", " ").split():
         if token.lower().startswith("gpu["):
-            return token.strip("[]")
+            return token[token.find("[") + 1:token.find("]")]
         if token.lower().startswith("card"):
             return token.strip(":")
     return None
+
+
+def parse_lspci_gpu_line(line):
+    parts = line.split(None, 1)
+    address = parts[0] if parts else None
+    description = parts[1] if len(parts) > 1 else line
+    if ":" in description:
+        description = description.split(":", 1)[1].strip()
+
+    for prefix in (
+        "Advanced Micro Devices, Inc. [AMD/ATI]",
+        "Advanced Micro Devices, Inc.",
+        "[AMD/ATI]",
+        "ATI Technologies Inc",
+    ):
+        description = description.replace(prefix, "").strip()
+
+    return address, description or line.strip()
+
+
+def read_pci_address(card):
+    try:
+        return (card / "device").resolve().name
+    except OSError:
+        return None
+
+
+def dedupe_gpus(gpus):
+    deduped = []
+    seen = set()
+    for gpu in gpus:
+        key = gpu.get("pciAddress") or gpu.get("name")
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(gpu)
+    return deduped
 
 
 def parse_percent(line):

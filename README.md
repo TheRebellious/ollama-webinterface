@@ -85,7 +85,7 @@ The default file limit is 10 MB. You can change it with `upload_max_mb` in `conf
 
 ## Machine stats
 
-The sidebar shows live machine stats from `/api/system`, including CPU, memory, disk usage, load average, uptime, and GPU usage. NVIDIA GPUs are detected with `nvidia-smi`; AMD GPUs are detected with `amd-smi`, `rocm-smi`, or Linux sysfs when available. Windows RAM detection uses the native system API. The UI refreshes this every 5 seconds.
+The sidebar shows live machine stats from `/api/system`, including CPU, memory, disk usage, load average, uptime, and GPU usage. NVIDIA GPUs are detected with `nvidia-smi`; AMD GPUs are detected with `lspci`, Windows video-controller data, `amd-smi`, `rocm-smi`, or Linux sysfs when available. Windows RAM detection uses the native system API. The UI refreshes this every 5 seconds.
 
 ## Model runtime
 
