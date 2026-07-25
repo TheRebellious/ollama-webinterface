@@ -1,5 +1,6 @@
 import json
 import logging
+import mimetypes
 import threading
 from http.server import BaseHTTPRequestHandler
 
@@ -34,6 +35,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             self.serve_file(self.config.icon_path, "image/svg+xml")
             return
 
+        if self.path.startswith("/assets/"):
+            self.serve_asset()
+            return
+
         if self.path == "/api/config":
             self.send_json({
                 "debugShutdown": self.config.debug_shutdown,
@@ -54,6 +59,19 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404, "Not found")
+
+    def serve_asset(self):
+        root = self.config.index_path.parent.resolve()
+        relative_path = self.path.split("?", 1)[0].lstrip("/")
+        candidate = (root / relative_path).resolve()
+        try:
+            candidate.relative_to(root / "assets")
+        except ValueError:
+            self.send_error(404, "Not found")
+            return
+
+        content_type, _ = mimetypes.guess_type(candidate.name)
+        self.serve_file(candidate, content_type or "application/octet-stream")
 
     def do_POST(self):
         if self.path == "/api/chat":

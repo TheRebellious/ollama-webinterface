@@ -1,0 +1,10 @@
+import { post } from "../api/client.js";
+import { state } from "../state.js";
+import { el } from "../ui/elements.js";
+import { setBusy } from "../ui/status.js";
+import { effectiveContextSize } from "../ui/settings.js";
+import { renderAttachments, buildDisplayContent, buildMessageContent } from "./files.js";
+import { renderMessages } from "../ui/chat.js";
+import { saveCurrentConversation } from "../ui/conversations.js";
+import { loadRunningModels } from "./models.js";
+export async function sendPrompt() { const prompt = el.prompt.value.trim(); if ((!prompt && !state.attachments.length) || state.busy || !el.model.value) return; state.messages.push({ role: "user", content: buildMessageContent(prompt), displayContent: buildDisplayContent(prompt) }); el.prompt.value = ""; state.attachments = []; renderAttachments(); renderMessages(); saveCurrentConversation(); setBusy(true); const messages = el.systemPrompt.value.trim() ? [{ role: "system", content: el.systemPrompt.value.trim() }, ...state.messages.map(({ role, content }) => ({ role, content }))] : state.messages.map(({ role, content }) => ({ role, content })); const assistant = { role: "assistant", content: "" }; state.messages.push(assistant); try { const response = await post("/api/chat", { model: el.model.value, messages, stream: true, options: { temperature: Number(el.temperature.value || .7), num_ctx: effectiveContextSize() } }); const reader = response.body?.getReader(); if (!reader) throw new Error("No response stream"); const decoder = new TextDecoder(); let buffer = ""; for (;;) { const { value, done } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() || ""; lines.filter(Boolean).forEach((line) => { const part = JSON.parse(line); assistant.content += part.message?.content || ""; }); renderMessages(); saveCurrentConversation(); } } catch (error) { assistant.content = `Request failed: ${error.message || error}`; renderMessages(); saveCurrentConversation(); } finally { setBusy(false); loadRunningModels(); } }
