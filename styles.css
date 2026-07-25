@@ -135,6 +135,11 @@
       white-space: nowrap;
     }
 
+    #contextMode {
+      height: 36px;
+      font-size: 13px;
+    }
+
     select, input, textarea {
       width: 100%;
       border: 1px solid var(--line);

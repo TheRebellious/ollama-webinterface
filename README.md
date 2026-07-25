@@ -93,6 +93,10 @@ On Windows, the machine panel shows CPU load as a percentage. On Linux and other
 
 The model selector shows whether the currently selected Ollama model is active or idle by polling `/api/ps`.
 
+## Context size
+
+The context setting can run in automatic mode. The UI asks Ollama for the selected model details through `/api/show`, detects the model's maximum context length when available, and sends that as `num_ctx`. Manual mode is still available if you want to set a smaller value.
+
 ## Mobile layout
 
 On narrow screens, the chat uses the full viewport and the settings/sidebar content moves into a slide-out panel. The app also includes a web app manifest and icon for mobile browser installation.

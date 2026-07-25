@@ -62,12 +62,16 @@
               <label for="context">Context</label>
               <span id="contextValue" class="range-value">4096 tokens</span>
             </div>
+            <select id="contextMode">
+              <option value="auto">Auto detected maximum</option>
+              <option value="manual">Manual</option>
+            </select>
             <input id="context" type="number" min="512" step="512" value="4096">
             <div class="range-track" aria-hidden="true">
               <span>512 short</span>
-              <span>more = longer memory</span>
+              <span id="contextMaxLabel">detecting max</span>
             </div>
-            <p class="control-help">How much prior text the model can consider.</p>
+            <p class="control-help" id="contextHelp">Auto uses the selected model's detected context window.</p>
           </div>
         </div>
 
@@ -180,6 +184,7 @@
     ]);
     const officeExtensions = new Set(["docx", "xlsx", "pptx"]);
     let maxFileBytes = 10 * 1024 * 1024;
+    let detectedContextTokens = null;
 
     const el = {
       app: document.querySelector("#app"),
@@ -195,8 +200,11 @@
       statusText: document.querySelector("#statusText"),
       temperature: document.querySelector("#temperature"),
       temperatureValue: document.querySelector("#temperatureValue"),
+      contextMode: document.querySelector("#contextMode"),
       context: document.querySelector("#context"),
       contextValue: document.querySelector("#contextValue"),
+      contextMaxLabel: document.querySelector("#contextMaxLabel"),
+      contextHelp: document.querySelector("#contextHelp"),
       systemPrompt: document.querySelector("#systemPrompt"),
       chat: document.querySelector("#chat"),
       emptyState: document.querySelector("#emptyState"),
@@ -628,9 +636,38 @@
 
     function updateSettingRanges() {
       const temperature = Number(el.temperature.value || 0);
-      const context = Number(el.context.value || 0);
+      const context = effectiveContextSize();
       el.temperatureValue.textContent = `${temperature.toFixed(1)} / 2`;
-      el.contextValue.textContent = `${context.toLocaleString()} tokens`;
+      el.contextValue.textContent = el.contextMode.value === "auto"
+        ? `${context.toLocaleString()} tokens auto`
+        : `${context.toLocaleString()} tokens`;
+      el.context.disabled = el.contextMode.value === "auto";
+      el.contextMaxLabel.textContent = detectedContextTokens
+        ? `max ${detectedContextTokens.toLocaleString()}`
+        : "max unknown";
+      el.contextHelp.textContent = el.contextMode.value === "auto"
+        ? "Auto uses the selected model's detected context window."
+        : "Manual sets how much prior text the model can consider.";
+    }
+
+    function effectiveContextSize() {
+      if (el.contextMode.value === "auto" && detectedContextTokens) {
+        return detectedContextTokens;
+      }
+      return Number(el.context.value || detectedContextTokens || 4096);
+    }
+
+    function applyDetectedContext(tokens) {
+      detectedContextTokens = tokens;
+      if (tokens) {
+        el.context.max = String(tokens);
+        if (Number(el.context.value || 0) > tokens) {
+          el.context.value = String(tokens);
+        }
+      } else {
+        el.context.removeAttribute("max");
+      }
+      updateSettingRanges();
     }
 
     function renderAttachments() {
@@ -897,6 +934,7 @@
         setStatus("ok", "Connected");
         el.activeModel.textContent = el.model.value;
         loadRunningModels();
+        loadModelContext();
         setBusy(false);
       } catch (error) {
         setStatus("bad", "Ollama unavailable");
@@ -904,6 +942,75 @@
         setModelRuntime("bad", "Runtime unavailable");
         setBusy(false);
       }
+    }
+
+    async function loadModelContext() {
+      if (!el.model.value) {
+        applyDetectedContext(null);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/show", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: el.model.value })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        applyDetectedContext(extractContextTokens(data));
+      } catch (error) {
+        applyDetectedContext(null);
+      }
+    }
+
+    function extractContextTokens(data) {
+      const modelInfo = data.model_info || {};
+      const details = data.details || {};
+      const directKeys = [
+        "context_length",
+        "num_ctx",
+        "llama.context_length",
+        "gemma3.context_length",
+        "qwen2.context_length",
+        "qwen3.context_length",
+        "mistral.context_length",
+        "phi3.context_length"
+      ];
+
+      for (const key of directKeys) {
+        const value = parseContextNumber(modelInfo[key] ?? details[key] ?? data[key]);
+        if (value) return value;
+      }
+
+      for (const [key, value] of Object.entries(modelInfo)) {
+        if (key.endsWith(".context_length")) {
+          const parsed = parseContextNumber(value);
+          if (parsed) return parsed;
+        }
+      }
+
+      return parseContextFromParameters(data.parameters || "");
+    }
+
+    function parseContextFromParameters(parameters) {
+      const text = String(parameters || "");
+      const patterns = [
+        /num_ctx\s+(\d+)/i,
+        /context_length\s+(\d+)/i,
+        /context\s+length\s+(\d+)/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) return parseContextNumber(match[1]);
+      }
+      return null;
+    }
+
+    function parseContextNumber(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 512 ? Math.floor(parsed) : null;
     }
 
     async function fetchRunningModelNames() {
@@ -976,7 +1083,7 @@
             stream: true,
             options: {
               temperature: Number(el.temperature.value || 0.7),
-              num_ctx: Number(el.context.value || 4096)
+              num_ctx: effectiveContextSize()
             }
           })
         });
@@ -1041,6 +1148,7 @@
     el.model.addEventListener("change", () => {
       el.activeModel.textContent = el.model.value || "No model selected";
       loadRunningModels();
+      loadModelContext();
       setBusy(false);
     });
 
@@ -1058,6 +1166,7 @@
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
     el.temperature.addEventListener("input", updateSettingRanges);
+    el.contextMode.addEventListener("change", updateSettingRanges);
     el.context.addEventListener("input", updateSettingRanges);
     el.fileInput.addEventListener("change", (event) => {
       addFiles(Array.from(event.target.files || []));
