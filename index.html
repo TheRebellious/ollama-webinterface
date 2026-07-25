@@ -320,8 +320,9 @@
 
     function renderInlineMarkdown(value) {
       const math = [];
-      const protectedValue = protectInlineMath(value, math);
+      const protectedValue = protectInlineMath(normalizeMarkdownSource(value), math);
       return restoreInlineMath(escapeHtml(protectedValue)
+        .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
         .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
         .replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (match, alt, id) => {
           const url = markdownReferences[id.toLowerCase()];
@@ -364,7 +365,7 @@
           return `<pre>${label}<code${className}>${highlightCode(code.trim(), language)}</code></pre>`;
         }
 
-        const lines = part.split("\n");
+        const lines = normalizeMarkdownSource(part).split("\n");
         const blocks = [];
         let list = null;
         let paragraph = [];
@@ -420,6 +421,26 @@
             }
             index -= 1;
             blocks.push(renderTable(tableRows));
+            continue;
+          }
+
+          if (isEmptyPipeRow(trimmed)) {
+            flushList();
+            flushParagraph();
+            continue;
+          }
+
+          if (isLoosePipeRow(trimmed)) {
+            flushList();
+            flushParagraph();
+            const looseRows = [];
+            while (index < lines.length && isLoosePipeRow(lines[index].trim())) {
+              const cells = splitTableRow(lines[index]).filter((cell) => cell.trim());
+              if (cells.length >= 2) looseRows.push(cells);
+              index += 1;
+            }
+            index -= 1;
+            if (looseRows.length) blocks.push(renderLooseRows(looseRows));
             continue;
           }
 
@@ -491,8 +512,19 @@
       }).join("");
     }
 
+    function normalizeMarkdownSource(value) {
+      return String(value || "")
+        .replace(/\\\\\[/g, "\\[")
+        .replace(/\\\\\]/g, "\\]")
+        .replace(/\\\\\(/g, "\\(")
+        .replace(/\\\\\)/g, "\\)");
+    }
+
     function protectInlineMath(value, math) {
       return String(value || "")
+        .replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
+          return stashMath(math, formula);
+        })
         .replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
           return stashMath(math, formula);
         })
@@ -589,6 +621,14 @@
       return /^\s*\|.+\|\s*$/.test(line);
     }
 
+    function isEmptyPipeRow(trimmed) {
+      return /^\|+\s*$/.test(trimmed);
+    }
+
+    function isLoosePipeRow(trimmed) {
+      return isTableRow(trimmed) && !isEmptyPipeRow(trimmed);
+    }
+
     function isTableStart(lines, index) {
       if (!isTableRow(lines[index] || "") || !isTableRow(lines[index + 1] || "")) return false;
       return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1]);
@@ -602,6 +642,15 @@
         return `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`;
       }).join("");
       return `<div class="table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+    }
+
+    function renderLooseRows(rows) {
+      const rowHtml = rows.map((row) => {
+        const label = row[0] || "";
+        const detail = row.slice(1).join(" | ");
+        return `<div class="loose-row"><div class="loose-label">${renderInlineMarkdown(label)}</div><div>${renderInlineMarkdown(detail)}</div></div>`;
+      }).join("");
+      return `<div class="loose-table">${rowHtml}</div>`;
     }
 
     function splitTableRow(row) {
