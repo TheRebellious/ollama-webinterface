@@ -158,15 +158,76 @@ def get_disk_info(root_path: Path):
 
 
 def get_load_info():
+    if platform.system().lower() == "windows":
+        return get_windows_cpu_load_info()
+
     if not hasattr(os, "getloadavg"):
-        return {"one": None, "five": None, "fifteen": None}
+        return {"kind": "unavailable", "label": "Load", "one": None, "five": None, "fifteen": None}
 
     one, five, fifteen = os.getloadavg()
     return {
+        "kind": "load_average",
+        "label": "Load average",
         "one": round(one, 2),
         "five": round(five, 2),
         "fifteen": round(fifteen, 2),
     }
+
+
+def get_windows_cpu_load_info():
+    load = get_windows_cpu_load_from_powershell()
+    if load is None:
+        load = get_windows_cpu_load_from_wmic()
+
+    return {
+        "kind": "cpu_percent",
+        "label": "CPU load",
+        "percent": load,
+        "one": None,
+        "five": None,
+        "fifteen": None,
+    }
+
+
+def get_windows_cpu_load_from_powershell():
+    if not shutil.which("powershell"):
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "(Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    return parse_float_percent(result.stdout.strip())
+
+
+def get_windows_cpu_load_from_wmic():
+    try:
+        result = subprocess.run(
+            ["wmic", "cpu", "get", "loadpercentage", "/Value"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    for line in result.stdout.splitlines():
+        if line.lower().startswith("loadpercentage="):
+            return parse_float_percent(line.split("=", 1)[1])
+    return None
 
 
 def get_uptime_seconds():
@@ -491,5 +552,12 @@ def read_first_existing(*paths):
 def parse_int(value):
     try:
         return int(value)
+    except ValueError:
+        return None
+
+
+def parse_float_percent(value):
+    try:
+        return round(float(str(value).strip().replace(",", ".")), 1)
     except ValueError:
         return None

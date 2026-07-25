@@ -108,7 +108,7 @@
                 <strong id="systemDisk">--</strong>
               </div>
               <div class="system-metric">
-                <span>Load</span>
+                <span id="systemLoadLabel">Load</span>
                 <strong id="systemLoad">--</strong>
               </div>
               <div class="system-metric">
@@ -211,6 +211,7 @@
       systemCpu: document.querySelector("#systemCpu"),
       systemMemory: document.querySelector("#systemMemory"),
       systemDisk: document.querySelector("#systemDisk"),
+      systemLoadLabel: document.querySelector("#systemLoadLabel"),
       systemLoad: document.querySelector("#systemLoad"),
       systemUptime: document.querySelector("#systemUptime"),
       systemGpu: document.querySelector("#systemGpu"),
@@ -816,9 +817,19 @@
           ? formatLargeBytes(info.disk.freeBytes)
           : `${diskUsed}% used`;
 
-        el.systemLoad.textContent = info.load.one === null || info.load.one === undefined
-          ? "--"
-          : `${info.load.one} / ${info.load.five} / ${info.load.fifteen}`;
+        el.systemLoadLabel.textContent = info.load.label || "Load";
+        if (info.load.kind === "cpu_percent") {
+          el.systemLoad.textContent = info.load.percent === null || info.load.percent === undefined
+            ? "--"
+            : `${info.load.percent}% CPU`;
+        } else if (info.load.kind === "load_average") {
+          el.systemLoad.textContent = info.load.one === null || info.load.one === undefined
+            ? "--"
+            : `${info.load.one} / ${info.load.five} / ${info.load.fifteen}`;
+          el.systemLoad.title = "Average runnable work over 1, 5, and 15 minutes.";
+        } else {
+          el.systemLoad.textContent = "--";
+        }
 
         el.systemUptime.textContent = formatUptime(info.uptimeSeconds);
         el.systemGpu.textContent = info.gpu && info.gpu.length
