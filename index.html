@@ -11,6 +11,19 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <title>Ollama Console</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["\\(", "\\)"]],
+        displayMath: [["\\[", "\\]"]],
+        processEscapes: true
+      },
+      svg: {
+        fontCache: "global"
+      }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -289,6 +302,7 @@
         content.innerHTML = renderMarkdown(message.displayContent || message.content);
         node.append(meta, content);
         el.chat.appendChild(node);
+        renderMath(content);
       }
 
       el.chat.scrollTop = el.chat.scrollHeight;
@@ -305,7 +319,9 @@
     }
 
     function renderInlineMarkdown(value) {
-      return escapeHtml(value)
+      const math = [];
+      const protectedValue = protectInlineMath(value, math);
+      return restoreInlineMath(escapeHtml(protectedValue)
         .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
         .replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (match, alt, id) => {
           const url = markdownReferences[id.toLowerCase()];
@@ -320,7 +336,7 @@
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/__([^_]+)__/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/_([^_]+)_/g, "<em>$1</em>");
+        .replace(/_([^_]+)_/g, "<em>$1</em>"), math);
     }
 
     const markdownReferences = {};
@@ -374,6 +390,22 @@
           if (!trimmed) {
             flushList();
             flushParagraph();
+            continue;
+          }
+
+          if (isHorizontalRule(trimmed)) {
+            flushList();
+            flushParagraph();
+            blocks.push("<hr>");
+            continue;
+          }
+
+          if (isDisplayMathStart(trimmed)) {
+            flushList();
+            flushParagraph();
+            const math = collectDisplayMath(lines, index);
+            index = math.endIndex;
+            blocks.push(`<div class="math-display">\\[${escapeHtml(math.content)}\\]</div>`);
             continue;
           }
 
@@ -459,6 +491,34 @@
       }).join("");
     }
 
+    function protectInlineMath(value, math) {
+      return String(value || "")
+        .replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
+          return stashMath(math, formula);
+        })
+        .replace(/(^|[^$])\$([^$\n]+?)\$(?!\$)/g, (match, prefix, formula) => {
+          return `${prefix}${stashMath(math, formula)}`;
+        });
+    }
+
+    function stashMath(math, formula) {
+      const token = `@@MATH${math.length}@@`;
+      math.push(`<span class="math-inline">\\(${escapeHtml(formula.trim())}\\)</span>`);
+      return token;
+    }
+
+    function restoreInlineMath(value, math) {
+      return math.reduce((result, formula, index) => {
+        return result.replace(`@@MATH${index}@@`, formula);
+      }, value);
+    }
+
+    function renderMath(node) {
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise([node]).catch(() => {});
+      }
+    }
+
     function highlightCode(code, language) {
       let highlighted = escapeHtml(code);
       const normalized = String(language || "").toLowerCase();
@@ -476,6 +536,53 @@
         .split(/\n\s*\n/)
         .map((paragraph) => `<p>${renderInlineMarkdown(paragraph.replace(/\n/g, " ").trim())}</p>`)
         .join("");
+    }
+
+    function isHorizontalRule(trimmed) {
+      return /^([-*_])(?:\s*\1){2,}$/.test(trimmed);
+    }
+
+    function isDisplayMathStart(trimmed) {
+      return trimmed === "$$" || trimmed.startsWith("$$") || trimmed === "\\[" || trimmed.startsWith("\\[");
+    }
+
+    function collectDisplayMath(lines, startIndex) {
+      const start = lines[startIndex].trim();
+      const isDollar = start.startsWith("$$");
+      const close = isDollar ? "$$" : "\\]";
+      const openingLength = isDollar ? 2 : 2;
+      const chunks = [];
+      let first = start.slice(openingLength).trim();
+
+      if (first.endsWith(close) && first.length > close.length) {
+        return {
+          content: first.slice(0, -close.length).trim(),
+          endIndex: startIndex
+        };
+      }
+
+      if (first && first !== close) {
+        chunks.push(first);
+      }
+
+      for (let index = startIndex + 1; index < lines.length; index += 1) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (trimmed.endsWith(close)) {
+          const beforeClose = line.slice(0, line.lastIndexOf(close)).trim();
+          if (beforeClose) chunks.push(beforeClose);
+          return {
+            content: chunks.join("\n"),
+            endIndex: index
+          };
+        }
+        chunks.push(line);
+      }
+
+      return {
+        content: chunks.join("\n"),
+        endIndex: lines.length - 1
+      };
     }
 
     function isTableRow(line) {
