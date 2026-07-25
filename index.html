@@ -11,6 +11,19 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <title>Ollama Console</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["\\(", "\\)"]],
+        displayMath: [["\\[", "\\]"]],
+        processEscapes: true
+      },
+      svg: {
+        fontCache: "global"
+      }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -22,6 +35,7 @@
           <h1>Ollama Console</h1>
           <div id="connectionStatus" class="status">Checking server...</div>
         </div>
+        <button id="collapseSidebar" class="icon-button sidebar-toggle" type="button" title="Collapse settings">&lt;</button>
         <button id="closeSettings" class="icon-button panel-close" type="button" title="Close settings">x</button>
       </div>
 
@@ -40,17 +54,38 @@
           <div class="conversation-controls">
             <select id="conversationSelect"></select>
             <button id="newConversation" type="button">New</button>
+            <button id="deleteConversation" class="danger" type="button">Delete</button>
           </div>
         </div>
 
         <div class="row">
           <div class="field">
-            <label for="temperature">Temperature</label>
+            <div class="label-row">
+              <label for="temperature">Temperature</label>
+              <span id="temperatureValue" class="range-value">0.7 / 2</span>
+            </div>
             <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7">
+            <div class="range-track" aria-hidden="true">
+              <span>0 precise</span>
+              <span>2 creative</span>
+            </div>
+            <p class="control-help">Lower is steadier. Higher is more varied.</p>
           </div>
           <div class="field">
-            <label for="context">Context</label>
+            <div class="label-row">
+              <label for="context">Context</label>
+              <span id="contextValue" class="range-value">4096 tokens</span>
+            </div>
+            <select id="contextMode">
+              <option value="auto">Auto detected maximum</option>
+              <option value="manual">Manual</option>
+            </select>
             <input id="context" type="number" min="512" step="512" value="4096">
+            <div class="range-track" aria-hidden="true">
+              <span>512 short</span>
+              <span id="contextMaxLabel">detecting max</span>
+            </div>
+            <p class="control-help" id="contextHelp">Auto uses the selected model's detected context window.</p>
           </div>
         </div>
 
@@ -91,7 +126,7 @@
                 <strong id="systemDisk">--</strong>
               </div>
               <div class="system-metric">
-                <span>Load</span>
+                <span id="systemLoadLabel">Load</span>
                 <strong id="systemLoad">--</strong>
               </div>
               <div class="system-metric">
@@ -122,6 +157,7 @@
           <span>Chat with the Ollama instance running in this container.</span>
         </div>
         <div class="topbar-actions">
+          <button id="expandSidebar" class="settings-button" type="button">Settings</button>
           <div class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Connecting</span></div>
           <button id="openSettings" class="icon-button mobile-menu" type="button" title="Open settings">M</button>
         </div>
@@ -163,6 +199,7 @@
     ]);
     const officeExtensions = new Set(["docx", "xlsx", "pptx"]);
     let maxFileBytes = 10 * 1024 * 1024;
+    let detectedContextTokens = null;
 
     const el = {
       app: document.querySelector("#app"),
@@ -171,12 +208,18 @@
       modelRuntimeText: document.querySelector("#modelRuntimeText"),
       conversationSelect: document.querySelector("#conversationSelect"),
       newConversation: document.querySelector("#newConversation"),
+      deleteConversation: document.querySelector("#deleteConversation"),
       activeModel: document.querySelector("#activeModel"),
       connectionStatus: document.querySelector("#connectionStatus"),
       statusDot: document.querySelector("#statusDot"),
       statusText: document.querySelector("#statusText"),
       temperature: document.querySelector("#temperature"),
+      temperatureValue: document.querySelector("#temperatureValue"),
+      contextMode: document.querySelector("#contextMode"),
       context: document.querySelector("#context"),
+      contextValue: document.querySelector("#contextValue"),
+      contextMaxLabel: document.querySelector("#contextMaxLabel"),
+      contextHelp: document.querySelector("#contextHelp"),
       systemPrompt: document.querySelector("#systemPrompt"),
       chat: document.querySelector("#chat"),
       emptyState: document.querySelector("#emptyState"),
@@ -191,6 +234,7 @@
       systemCpu: document.querySelector("#systemCpu"),
       systemMemory: document.querySelector("#systemMemory"),
       systemDisk: document.querySelector("#systemDisk"),
+      systemLoadLabel: document.querySelector("#systemLoadLabel"),
       systemLoad: document.querySelector("#systemLoad"),
       systemUptime: document.querySelector("#systemUptime"),
       systemGpu: document.querySelector("#systemGpu"),
@@ -199,6 +243,8 @@
       refreshModels: document.querySelector("#refreshModels"),
       clearChat: document.querySelector("#clearChat"),
       shutdownServer: document.querySelector("#shutdownServer"),
+      collapseSidebar: document.querySelector("#collapseSidebar"),
+      expandSidebar: document.querySelector("#expandSidebar"),
       openSettings: document.querySelector("#openSettings"),
       closeSettings: document.querySelector("#closeSettings"),
       settingsOverlay: document.querySelector("#settingsOverlay")
@@ -213,12 +259,24 @@
 
     function setBusy(isBusy) {
       state.busy = isBusy;
+      el.app.classList.toggle("is-busy", isBusy);
       el.send.disabled = isBusy || !state.online || !el.model.value;
-      el.send.textContent = isBusy ? "Stop" : "Send";
+      el.send.textContent = isBusy ? "Generating..." : "Send";
+      if (isBusy) {
+        el.statusDot.className = "dot loading";
+        el.statusText.textContent = "Generating";
+        el.connectionStatus.textContent = "Generating response...";
+      } else if (state.online) {
+        setStatus("ok", "Connected");
+      }
     }
 
     function setSettingsOpen(isOpen) {
       el.app.classList.toggle("settings-open", isOpen);
+    }
+
+    function setSidebarCollapsed(isCollapsed) {
+      el.app.classList.toggle("sidebar-collapsed", isCollapsed);
     }
 
     function setModelRuntime(kind, text) {
@@ -244,6 +302,7 @@
         content.innerHTML = renderMarkdown(message.displayContent || message.content);
         node.append(meta, content);
         el.chat.appendChild(node);
+        renderMath(content);
       }
 
       el.chat.scrollTop = el.chat.scrollHeight;
@@ -260,7 +319,10 @@
     }
 
     function renderInlineMarkdown(value) {
-      return escapeHtml(value)
+      const math = [];
+      const protectedValue = protectInlineMath(normalizeMarkdownSource(value), math);
+      return restoreInlineMath(escapeHtml(protectedValue)
+        .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
         .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
         .replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (match, alt, id) => {
           const url = markdownReferences[id.toLowerCase()];
@@ -275,7 +337,7 @@
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/__([^_]+)__/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/_([^_]+)_/g, "<em>$1</em>");
+        .replace(/_([^_]+)_/g, "<em>$1</em>"), math);
     }
 
     const markdownReferences = {};
@@ -303,7 +365,7 @@
           return `<pre>${label}<code${className}>${highlightCode(code.trim(), language)}</code></pre>`;
         }
 
-        const lines = part.split("\n");
+        const lines = normalizeMarkdownSource(part).split("\n");
         const blocks = [];
         let list = null;
         let paragraph = [];
@@ -332,6 +394,22 @@
             continue;
           }
 
+          if (isHorizontalRule(trimmed)) {
+            flushList();
+            flushParagraph();
+            blocks.push("<hr>");
+            continue;
+          }
+
+          if (isDisplayMathStart(trimmed)) {
+            flushList();
+            flushParagraph();
+            const math = collectDisplayMath(lines, index);
+            index = math.endIndex;
+            blocks.push(`<div class="math-display">\\[${escapeHtml(math.content)}\\]</div>`);
+            continue;
+          }
+
           if (isTableStart(lines, index)) {
             flushList();
             flushParagraph();
@@ -343,6 +421,26 @@
             }
             index -= 1;
             blocks.push(renderTable(tableRows));
+            continue;
+          }
+
+          if (isEmptyPipeRow(trimmed)) {
+            flushList();
+            flushParagraph();
+            continue;
+          }
+
+          if (isLoosePipeRow(trimmed)) {
+            flushList();
+            flushParagraph();
+            const looseRows = [];
+            while (index < lines.length && isLoosePipeRow(lines[index].trim())) {
+              const cells = splitTableRow(lines[index]).filter((cell) => cell.trim());
+              if (cells.length >= 2) looseRows.push(cells);
+              index += 1;
+            }
+            index -= 1;
+            if (looseRows.length) blocks.push(renderLooseRows(looseRows));
             continue;
           }
 
@@ -414,6 +512,45 @@
       }).join("");
     }
 
+    function normalizeMarkdownSource(value) {
+      return String(value || "")
+        .replace(/\\\\\[/g, "\\[")
+        .replace(/\\\\\]/g, "\\]")
+        .replace(/\\\\\(/g, "\\(")
+        .replace(/\\\\\)/g, "\\)");
+    }
+
+    function protectInlineMath(value, math) {
+      return String(value || "")
+        .replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
+          return stashMath(math, formula);
+        })
+        .replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
+          return stashMath(math, formula);
+        })
+        .replace(/(^|[^$])\$([^$\n]+?)\$(?!\$)/g, (match, prefix, formula) => {
+          return `${prefix}${stashMath(math, formula)}`;
+        });
+    }
+
+    function stashMath(math, formula) {
+      const token = `@@MATH${math.length}@@`;
+      math.push(`<span class="math-inline">\\(${escapeHtml(formula.trim())}\\)</span>`);
+      return token;
+    }
+
+    function restoreInlineMath(value, math) {
+      return math.reduce((result, formula, index) => {
+        return result.replace(`@@MATH${index}@@`, formula);
+      }, value);
+    }
+
+    function renderMath(node) {
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise([node]).catch(() => {});
+      }
+    }
+
     function highlightCode(code, language) {
       let highlighted = escapeHtml(code);
       const normalized = String(language || "").toLowerCase();
@@ -433,8 +570,63 @@
         .join("");
     }
 
+    function isHorizontalRule(trimmed) {
+      return /^([-*_])(?:\s*\1){2,}$/.test(trimmed);
+    }
+
+    function isDisplayMathStart(trimmed) {
+      return trimmed === "$$" || trimmed.startsWith("$$") || trimmed === "\\[" || trimmed.startsWith("\\[");
+    }
+
+    function collectDisplayMath(lines, startIndex) {
+      const start = lines[startIndex].trim();
+      const isDollar = start.startsWith("$$");
+      const close = isDollar ? "$$" : "\\]";
+      const openingLength = isDollar ? 2 : 2;
+      const chunks = [];
+      let first = start.slice(openingLength).trim();
+
+      if (first.endsWith(close) && first.length > close.length) {
+        return {
+          content: first.slice(0, -close.length).trim(),
+          endIndex: startIndex
+        };
+      }
+
+      if (first && first !== close) {
+        chunks.push(first);
+      }
+
+      for (let index = startIndex + 1; index < lines.length; index += 1) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (trimmed.endsWith(close)) {
+          const beforeClose = line.slice(0, line.lastIndexOf(close)).trim();
+          if (beforeClose) chunks.push(beforeClose);
+          return {
+            content: chunks.join("\n"),
+            endIndex: index
+          };
+        }
+        chunks.push(line);
+      }
+
+      return {
+        content: chunks.join("\n"),
+        endIndex: lines.length - 1
+      };
+    }
+
     function isTableRow(line) {
       return /^\s*\|.+\|\s*$/.test(line);
+    }
+
+    function isEmptyPipeRow(trimmed) {
+      return /^\|+\s*$/.test(trimmed);
+    }
+
+    function isLoosePipeRow(trimmed) {
+      return isTableRow(trimmed) && !isEmptyPipeRow(trimmed);
     }
 
     function isTableStart(lines, index) {
@@ -450,6 +642,15 @@
         return `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`;
       }).join("");
       return `<div class="table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+    }
+
+    function renderLooseRows(rows) {
+      const rowHtml = rows.map((row) => {
+        const label = row[0] || "";
+        const detail = row.slice(1).join(" | ");
+        return `<div class="loose-row"><div class="loose-label">${renderInlineMarkdown(label)}</div><div>${renderInlineMarkdown(detail)}</div></div>`;
+      }).join("");
+      return `<div class="loose-table">${rowHtml}</div>`;
     }
 
     function splitTableRow(row) {
@@ -530,6 +731,7 @@
         el.conversationSelect.appendChild(option);
       }
       el.conversationSelect.value = state.conversationId;
+      el.deleteConversation.disabled = state.conversations.length === 0;
     }
 
     function loadConversation(id) {
@@ -538,6 +740,26 @@
 
       state.conversationId = conversation.id;
       state.messages = conversation.messages || [];
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
+    }
+
+    function deleteCurrentConversation() {
+      const conversation = currentConversation();
+      if (!conversation) return;
+
+      const shouldDelete = window.confirm(`Delete "${conversation.title || "New chat"}"?`);
+      if (!shouldDelete) return;
+
+      state.conversations = state.conversations.filter((item) => item.id !== conversation.id);
+      if (state.conversations.length === 0) {
+        createConversation();
+        return;
+      }
+
+      state.conversationId = state.conversations[0].id;
+      state.messages = state.conversations[0].messages || [];
       persistConversations();
       renderConversationSelect();
       renderMessages();
@@ -574,6 +796,42 @@
       if (days > 0) return `${days}d ${hours}h`;
       if (hours > 0) return `${hours}h ${minutes}m`;
       return `${minutes}m`;
+    }
+
+    function updateSettingRanges() {
+      const temperature = Number(el.temperature.value || 0);
+      const context = effectiveContextSize();
+      el.temperatureValue.textContent = `${temperature.toFixed(1)} / 2`;
+      el.contextValue.textContent = el.contextMode.value === "auto"
+        ? `${context.toLocaleString()} tokens auto`
+        : `${context.toLocaleString()} tokens`;
+      el.context.disabled = el.contextMode.value === "auto";
+      el.contextMaxLabel.textContent = detectedContextTokens
+        ? `max ${detectedContextTokens.toLocaleString()}`
+        : "max unknown";
+      el.contextHelp.textContent = el.contextMode.value === "auto"
+        ? "Auto uses the selected model's detected context window."
+        : "Manual sets how much prior text the model can consider.";
+    }
+
+    function effectiveContextSize() {
+      if (el.contextMode.value === "auto" && detectedContextTokens) {
+        return detectedContextTokens;
+      }
+      return Number(el.context.value || detectedContextTokens || 4096);
+    }
+
+    function applyDetectedContext(tokens) {
+      detectedContextTokens = tokens;
+      if (tokens) {
+        el.context.max = String(tokens);
+        if (Number(el.context.value || 0) > tokens) {
+          el.context.value = String(tokens);
+        }
+      } else {
+        el.context.removeAttribute("max");
+      }
+      updateSettingRanges();
     }
 
     function renderAttachments() {
@@ -760,22 +1018,33 @@
           ? formatLargeBytes(info.disk.freeBytes)
           : `${diskUsed}% used`;
 
-        el.systemLoad.textContent = info.load.one === null || info.load.one === undefined
-          ? "--"
-          : `${info.load.one} / ${info.load.five} / ${info.load.fifteen}`;
+        el.systemLoadLabel.textContent = info.load.label || "Load";
+        if (info.load.kind === "cpu_percent") {
+          el.systemLoad.textContent = info.load.percent === null || info.load.percent === undefined
+            ? "--"
+            : `${info.load.percent}% CPU`;
+        } else if (info.load.kind === "load_average") {
+          el.systemLoad.textContent = info.load.one === null || info.load.one === undefined
+            ? "--"
+            : `${info.load.one} / ${info.load.five} / ${info.load.fifteen}`;
+          el.systemLoad.title = "Average runnable work over 1, 5, and 15 minutes.";
+        } else {
+          el.systemLoad.textContent = "--";
+        }
 
         el.systemUptime.textContent = formatUptime(info.uptimeSeconds);
         el.systemGpu.textContent = info.gpu && info.gpu.length
           ? info.gpu.map((gpu) => {
+              const vendor = gpu.vendor ? `${gpu.vendor} ` : "";
               const memory = gpu.memoryTotalMb
                 ? `${gpu.memoryUsedMb || 0}/${gpu.memoryTotalMb} MB`
                 : "memory unknown";
               const utilization = gpu.utilizationPercent === null || gpu.utilizationPercent === undefined
                 ? "util unknown"
                 : `${gpu.utilizationPercent}%`;
-              return `${gpu.name} (${memory}, ${utilization})`;
+              return `${vendor}${gpu.name} (${memory}, ${utilization})`;
             }).join("; ")
-          : "No NVIDIA GPU detected";
+          : "No GPU detected";
 
         el.systemNote.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
@@ -829,6 +1098,7 @@
         setStatus("ok", "Connected");
         el.activeModel.textContent = el.model.value;
         loadRunningModels();
+        loadModelContext();
         setBusy(false);
       } catch (error) {
         setStatus("bad", "Ollama unavailable");
@@ -836,6 +1106,75 @@
         setModelRuntime("bad", "Runtime unavailable");
         setBusy(false);
       }
+    }
+
+    async function loadModelContext() {
+      if (!el.model.value) {
+        applyDetectedContext(null);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/show", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: el.model.value })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        applyDetectedContext(extractContextTokens(data));
+      } catch (error) {
+        applyDetectedContext(null);
+      }
+    }
+
+    function extractContextTokens(data) {
+      const modelInfo = data.model_info || {};
+      const details = data.details || {};
+      const directKeys = [
+        "context_length",
+        "num_ctx",
+        "llama.context_length",
+        "gemma3.context_length",
+        "qwen2.context_length",
+        "qwen3.context_length",
+        "mistral.context_length",
+        "phi3.context_length"
+      ];
+
+      for (const key of directKeys) {
+        const value = parseContextNumber(modelInfo[key] ?? details[key] ?? data[key]);
+        if (value) return value;
+      }
+
+      for (const [key, value] of Object.entries(modelInfo)) {
+        if (key.endsWith(".context_length")) {
+          const parsed = parseContextNumber(value);
+          if (parsed) return parsed;
+        }
+      }
+
+      return parseContextFromParameters(data.parameters || "");
+    }
+
+    function parseContextFromParameters(parameters) {
+      const text = String(parameters || "");
+      const patterns = [
+        /num_ctx\s+(\d+)/i,
+        /context_length\s+(\d+)/i,
+        /context\s+length\s+(\d+)/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) return parseContextNumber(match[1]);
+      }
+      return null;
+    }
+
+    function parseContextNumber(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 512 ? Math.floor(parsed) : null;
     }
 
     async function fetchRunningModelNames() {
@@ -908,7 +1247,7 @@
             stream: true,
             options: {
               temperature: Number(el.temperature.value || 0.7),
-              num_ctx: Number(el.context.value || 4096)
+              num_ctx: effectiveContextSize()
             }
           })
         });
@@ -973,6 +1312,7 @@
     el.model.addEventListener("change", () => {
       el.activeModel.textContent = el.model.value || "No model selected";
       loadRunningModels();
+      loadModelContext();
       setBusy(false);
     });
 
@@ -985,8 +1325,13 @@
       el.prompt.focus();
     });
 
+    el.deleteConversation.addEventListener("click", deleteCurrentConversation);
+
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
+    el.temperature.addEventListener("input", updateSettingRanges);
+    el.contextMode.addEventListener("change", updateSettingRanges);
+    el.context.addEventListener("input", updateSettingRanges);
     el.fileInput.addEventListener("change", (event) => {
       addFiles(Array.from(event.target.files || []));
     });
@@ -1000,6 +1345,8 @@
     });
 
     el.shutdownServer.addEventListener("click", shutdownServer);
+    el.collapseSidebar.addEventListener("click", () => setSidebarCollapsed(true));
+    el.expandSidebar.addEventListener("click", () => setSidebarCollapsed(false));
     el.openSettings.addEventListener("click", () => setSettingsOpen(true));
     el.closeSettings.addEventListener("click", () => setSettingsOpen(false));
     el.settingsOverlay.addEventListener("click", () => setSettingsOpen(false));
@@ -1011,6 +1358,7 @@
     });
 
     loadConversations();
+    updateSettingRanges();
     loadConfig();
     loadSystemInfo();
     setInterval(loadSystemInfo, 5000);

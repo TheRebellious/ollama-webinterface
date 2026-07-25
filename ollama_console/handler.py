@@ -56,6 +56,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             proxy_ollama(self, "POST", "/api/chat")
             return
 
+        if self.path == "/api/show":
+            proxy_ollama(self, "POST", "/api/show")
+            return
+
         if self.path == "/api/shutdown":
             self.shutdown_server()
             return
