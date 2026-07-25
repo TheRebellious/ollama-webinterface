@@ -85,11 +85,17 @@ The default file limit is 10 MB. You can change it with `upload_max_mb` in `conf
 
 ## Machine stats
 
-The sidebar shows live machine stats from `/api/system`, including CPU, memory, disk usage, load average, uptime, and NVIDIA GPU usage when `nvidia-smi` is available. The UI refreshes this every 5 seconds.
+The sidebar shows live machine stats from `/api/system`, including CPU, memory, disk usage, load average, uptime, and GPU usage. NVIDIA GPUs are detected with `nvidia-smi`; AMD GPUs are detected with `lspci`, Windows video-controller data, `amd-smi`, `rocm-smi`, or Linux sysfs when available. Windows RAM detection uses the native system API. The UI refreshes this every 5 seconds.
+
+On Windows, the machine panel shows CPU load as a percentage. On Linux and other Unix-like systems, it shows load average for the last 1, 5, and 15 minutes.
 
 ## Model runtime
 
 The model selector shows whether the currently selected Ollama model is active or idle by polling `/api/ps`.
+
+## Context size
+
+The context setting can run in automatic mode. The UI asks Ollama for the selected model details through `/api/show`, detects the model's maximum context length when available, and sends that as `num_ctx`. Manual mode is still available if you want to set a smaller value.
 
 ## Mobile layout
 
