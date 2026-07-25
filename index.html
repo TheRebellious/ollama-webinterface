@@ -46,13 +46,27 @@
 
         <div class="row">
           <div class="field">
-            <label for="temperature">Temperature</label>
+            <div class="label-row">
+              <label for="temperature">Temperature</label>
+              <span id="temperatureValue" class="range-value">0.7 / 2</span>
+            </div>
             <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7">
+            <div class="range-track" aria-hidden="true">
+              <span>0 precise</span>
+              <span>2 creative</span>
+            </div>
             <p class="control-help">Lower is steadier. Higher is more varied.</p>
           </div>
           <div class="field">
-            <label for="context">Context</label>
+            <div class="label-row">
+              <label for="context">Context</label>
+              <span id="contextValue" class="range-value">4096 tokens</span>
+            </div>
             <input id="context" type="number" min="512" step="512" value="4096">
+            <div class="range-track" aria-hidden="true">
+              <span>512 short</span>
+              <span>more = longer memory</span>
+            </div>
             <p class="control-help">How much prior text the model can consider.</p>
           </div>
         </div>
@@ -180,7 +194,9 @@
       statusDot: document.querySelector("#statusDot"),
       statusText: document.querySelector("#statusText"),
       temperature: document.querySelector("#temperature"),
+      temperatureValue: document.querySelector("#temperatureValue"),
       context: document.querySelector("#context"),
+      contextValue: document.querySelector("#contextValue"),
       systemPrompt: document.querySelector("#systemPrompt"),
       chat: document.querySelector("#chat"),
       emptyState: document.querySelector("#emptyState"),
@@ -609,6 +625,13 @@
       return `${minutes}m`;
     }
 
+    function updateSettingRanges() {
+      const temperature = Number(el.temperature.value || 0);
+      const context = Number(el.context.value || 0);
+      el.temperatureValue.textContent = `${temperature.toFixed(1)} / 2`;
+      el.contextValue.textContent = `${context.toLocaleString()} tokens`;
+    }
+
     function renderAttachments() {
       el.attachments.innerHTML = "";
 
@@ -800,15 +823,16 @@
         el.systemUptime.textContent = formatUptime(info.uptimeSeconds);
         el.systemGpu.textContent = info.gpu && info.gpu.length
           ? info.gpu.map((gpu) => {
+              const vendor = gpu.vendor ? `${gpu.vendor} ` : "";
               const memory = gpu.memoryTotalMb
                 ? `${gpu.memoryUsedMb || 0}/${gpu.memoryTotalMb} MB`
                 : "memory unknown";
               const utilization = gpu.utilizationPercent === null || gpu.utilizationPercent === undefined
                 ? "util unknown"
                 : `${gpu.utilizationPercent}%`;
-              return `${gpu.name} (${memory}, ${utilization})`;
+              return `${vendor}${gpu.name} (${memory}, ${utilization})`;
             }).join("; ")
-          : "No NVIDIA GPU detected";
+          : "No GPU detected";
 
         el.systemNote.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
@@ -1022,6 +1046,8 @@
 
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
+    el.temperature.addEventListener("input", updateSettingRanges);
+    el.context.addEventListener("input", updateSettingRanges);
     el.fileInput.addEventListener("change", (event) => {
       addFiles(Array.from(event.target.files || []));
     });
@@ -1046,6 +1072,7 @@
     });
 
     loadConversations();
+    updateSettingRanges();
     loadConfig();
     loadSystemInfo();
     setInterval(loadSystemInfo, 5000);
