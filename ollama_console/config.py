@@ -82,7 +82,7 @@ def build_config(args) -> ServerConfig:
         styles_path=DEFAULT_STYLES_PATH,
         debug_shutdown=debug_shutdown,
         upload_max_bytes=int(upload_max_mb) * 1024 * 1024,
-        log_path=Path(log_path).expanduser(),
+        log_path=resolve_log_path(log_path, Path(args.config)),
     )
 
 
@@ -113,6 +113,15 @@ def first_value(*values):
         if value is not None:
             return value
     return None
+
+
+def resolve_log_path(value, config_path: Path) -> Path:
+    """Make config-relative log files independent of the service working directory."""
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+
+    return (config_path.expanduser().parent / path).resolve()
 
 
 def parse_int(value):
