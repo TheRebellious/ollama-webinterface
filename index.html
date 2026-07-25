@@ -40,6 +40,7 @@
           <div class="conversation-controls">
             <select id="conversationSelect"></select>
             <button id="newConversation" type="button">New</button>
+            <button id="deleteConversation" class="danger" type="button">Delete</button>
           </div>
         </div>
 
@@ -47,10 +48,12 @@
           <div class="field">
             <label for="temperature">Temperature</label>
             <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7">
+            <p class="control-help">Lower is steadier. Higher is more varied.</p>
           </div>
           <div class="field">
             <label for="context">Context</label>
             <input id="context" type="number" min="512" step="512" value="4096">
+            <p class="control-help">How much prior text the model can consider.</p>
           </div>
         </div>
 
@@ -171,6 +174,7 @@
       modelRuntimeText: document.querySelector("#modelRuntimeText"),
       conversationSelect: document.querySelector("#conversationSelect"),
       newConversation: document.querySelector("#newConversation"),
+      deleteConversation: document.querySelector("#deleteConversation"),
       activeModel: document.querySelector("#activeModel"),
       connectionStatus: document.querySelector("#connectionStatus"),
       statusDot: document.querySelector("#statusDot"),
@@ -213,8 +217,16 @@
 
     function setBusy(isBusy) {
       state.busy = isBusy;
+      el.app.classList.toggle("is-busy", isBusy);
       el.send.disabled = isBusy || !state.online || !el.model.value;
-      el.send.textContent = isBusy ? "Stop" : "Send";
+      el.send.textContent = isBusy ? "Generating..." : "Send";
+      if (isBusy) {
+        el.statusDot.className = "dot loading";
+        el.statusText.textContent = "Generating";
+        el.connectionStatus.textContent = "Generating response...";
+      } else if (state.online) {
+        setStatus("ok", "Connected");
+      }
     }
 
     function setSettingsOpen(isOpen) {
@@ -530,6 +542,7 @@
         el.conversationSelect.appendChild(option);
       }
       el.conversationSelect.value = state.conversationId;
+      el.deleteConversation.disabled = state.conversations.length === 0;
     }
 
     function loadConversation(id) {
@@ -538,6 +551,26 @@
 
       state.conversationId = conversation.id;
       state.messages = conversation.messages || [];
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
+    }
+
+    function deleteCurrentConversation() {
+      const conversation = currentConversation();
+      if (!conversation) return;
+
+      const shouldDelete = window.confirm(`Delete "${conversation.title || "New chat"}"?`);
+      if (!shouldDelete) return;
+
+      state.conversations = state.conversations.filter((item) => item.id !== conversation.id);
+      if (state.conversations.length === 0) {
+        createConversation();
+        return;
+      }
+
+      state.conversationId = state.conversations[0].id;
+      state.messages = state.conversations[0].messages || [];
       persistConversations();
       renderConversationSelect();
       renderMessages();
@@ -984,6 +1017,8 @@
       createConversation();
       el.prompt.focus();
     });
+
+    el.deleteConversation.addEventListener("click", deleteCurrentConversation);
 
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
