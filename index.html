@@ -40,10 +40,7 @@
           <div class="conversation-controls">
             <select id="conversationSelect"></select>
             <button id="newConversation" type="button">New</button>
-<<<<<<< HEAD
-=======
             <button id="deleteConversation" class="danger" type="button">Delete</button>
->>>>>>> main
           </div>
         </div>
 
@@ -177,10 +174,7 @@
       modelRuntimeText: document.querySelector("#modelRuntimeText"),
       conversationSelect: document.querySelector("#conversationSelect"),
       newConversation: document.querySelector("#newConversation"),
-<<<<<<< HEAD
-=======
       deleteConversation: document.querySelector("#deleteConversation"),
->>>>>>> main
       activeModel: document.querySelector("#activeModel"),
       connectionStatus: document.querySelector("#connectionStatus"),
       statusDot: document.querySelector("#statusDot"),
@@ -548,10 +542,7 @@
         el.conversationSelect.appendChild(option);
       }
       el.conversationSelect.value = state.conversationId;
-<<<<<<< HEAD
-=======
       el.deleteConversation.disabled = state.conversations.length === 0;
->>>>>>> main
     }
 
     function loadConversation(id) {
@@ -565,8 +556,6 @@
       renderMessages();
     }
 
-<<<<<<< HEAD
-=======
     function deleteCurrentConversation() {
       const conversation = currentConversation();
       if (!conversation) return;
@@ -587,7 +576,6 @@
       renderMessages();
     }
 
->>>>>>> main
     function getExtension(fileName) {
       const normalized = fileName.toLowerCase();
       if (normalized === "dockerfile" || normalized.endsWith(".dockerfile")) return "dockerfile";
@@ -1030,11 +1018,8 @@
       el.prompt.focus();
     });
 
-<<<<<<< HEAD
-=======
     el.deleteConversation.addEventListener("click", deleteCurrentConversation);
 
->>>>>>> main
     el.refreshModels.addEventListener("click", loadModels);
     el.refreshSystem.addEventListener("click", loadSystemInfo);
     el.fileInput.addEventListener("change", (event) => {
