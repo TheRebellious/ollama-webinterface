@@ -21,7 +21,8 @@ Edit `config.json` if needed:
   "port": 8080,
   "ollama_url": "http://127.0.0.1:11434",
   "debug_shutdown": false,
-  "upload_max_mb": 10
+  "upload_max_mb": 10,
+  "log_file": "ollama-console.log"
 }
 ```
 
@@ -52,6 +53,15 @@ python3 server.py --config /path/to/config.json
 ```
 
 `config.json` is ignored by git for local deployment changes. CLI flags and legacy environment variables still work as overrides.
+
+## Logging
+
+The server writes request activity, errors, and uncaught handler exceptions to
+`ollama-console.log` by default. The log is opened in append mode, so restarting
+the server preserves previous entries. Set `log_file` in `config.json`, pass
+`--log-file /path/to/server.log`, or set `OLLAMA_CONSOLE_LOG_FILE` to use another
+location. Relative log paths are resolved beside the selected config file, so a
+systemd service does not write logs to an unexpected working directory.
 
 For local debugging, start it with an in-page exit button:
 
@@ -105,8 +115,14 @@ On narrow screens, the chat uses the full viewport and the settings/sidebar cont
 
 ```text
 server.py                  Small entrypoint
-index.html                 Browser UI
+index.html                 Browser UI markup and module entry point
 styles.css                 Browser UI styles
+assets/js/app.js           Frontend startup and event binding
+assets/js/api/             HTTP client boundary
+assets/js/services/        Ollama, system, chat, and file workflows
+assets/js/ui/              DOM rendering and control modules
+assets/js/state.js         Shared client-side state and constants
+assets/js/utils/           Formatting helpers
 manifest.webmanifest       Mobile install metadata
 icon.svg                   Mobile app icon
 config.example.json        Example deploy config

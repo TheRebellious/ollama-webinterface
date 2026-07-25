@@ -3,5 +3,6 @@
   "port": 8080,
   "ollama_url": "http://127.0.0.1:11434",
   "debug_shutdown": false,
-  "upload_max_mb": 10
+  "upload_max_mb": 10,
+  "log_file": "ollama-console.log"
 }

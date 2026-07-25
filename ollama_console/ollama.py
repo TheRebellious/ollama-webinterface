@@ -1,5 +1,9 @@
 import urllib.error
 import urllib.request
+import logging
+
+
+LOGGER = logging.getLogger("ollama_console")
 
 
 def proxy_ollama(handler, method, upstream_path):
@@ -30,10 +34,12 @@ def proxy_ollama(handler, method, upstream_path):
                 handler.wfile.write(chunk)
                 handler.wfile.flush()
     except urllib.error.HTTPError as error:
+        LOGGER.warning("Ollama returned HTTP %s for %s", error.code, upstream_path)
         handler.send_response(error.code)
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         handler.wfile.write(error.read())
     except Exception as error:
+        LOGGER.exception("Could not reach Ollama for %s", upstream_path)
         payload = {"error": "Could not reach Ollama", "detail": str(error)}
         handler.send_json(payload, status=502)

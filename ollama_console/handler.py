@@ -1,4 +1,6 @@
 import json
+import logging
+import mimetypes
 import threading
 from http.server import BaseHTTPRequestHandler
 
@@ -7,11 +9,14 @@ from .ollama import proxy_ollama
 from .system_info import get_system_info
 
 
+LOGGER = logging.getLogger("ollama_console")
+
+
 class OllamaConsoleHandler(BaseHTTPRequestHandler):
     config = None
 
     def log_message(self, format, *args):
-        print("%s - %s" % (self.address_string(), format % args))
+        LOGGER.info("%s - %s", self.address_string(), format % args)
 
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
@@ -28,6 +33,10 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
 
         if self.path == "/icon.svg":
             self.serve_file(self.config.icon_path, "image/svg+xml")
+            return
+
+        if self.path.startswith("/assets/"):
+            self.serve_asset()
             return
 
         if self.path == "/api/config":
@@ -50,6 +59,19 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404, "Not found")
+
+    def serve_asset(self):
+        root = self.config.index_path.parent.resolve()
+        relative_path = self.path.split("?", 1)[0].lstrip("/")
+        candidate = (root / relative_path).resolve()
+        try:
+            candidate.relative_to(root / "assets")
+        except ValueError:
+            self.send_error(404, "Not found")
+            return
+
+        content_type, _ = mimetypes.guess_type(candidate.name)
+        self.serve_file(candidate, content_type or "application/octet-stream")
 
     def do_POST(self):
         if self.path == "/api/chat":
@@ -74,6 +96,7 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
         try:
             content = path.read_bytes()
         except OSError as error:
+            LOGGER.exception("Could not read static file %s", path)
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -112,6 +135,7 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
                 self.config.upload_max_bytes,
             )
         except (ValueError, FileExtractionError) as error:
+            LOGGER.warning("File extraction request rejected: %s", error)
             self.send_json({"error": str(error)}, status=400)
             return
 

@@ -12,6 +12,7 @@ DEFAULT_MANIFEST_PATH = PROJECT_ROOT / "manifest.webmanifest"
 DEFAULT_ICON_PATH = PROJECT_ROOT / "icon.svg"
 DEFAULT_STYLES_PATH = PROJECT_ROOT / "styles.css"
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
+DEFAULT_LOG_PATH = PROJECT_ROOT / "ollama-console.log"
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class ServerConfig:
     styles_path: Path
     debug_shutdown: bool
     upload_max_bytes: int
+    log_path: Path
 
 
 def parse_args():
@@ -33,6 +35,10 @@ def parse_args():
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--ollama-url")
+    parser.add_argument(
+        "--log-file",
+        help="Path to the server log file. Existing files are appended to.",
+    )
     parser.add_argument(
         "--debug-shutdown",
         action="store_true",
@@ -59,6 +65,12 @@ def build_config(args) -> ServerConfig:
         False,
     ))
     upload_max_mb = parse_int(first_value(file_config.get("upload_max_mb"), 10))
+    log_path = first_value(
+        args.log_file,
+        os.getenv("OLLAMA_CONSOLE_LOG_FILE"),
+        file_config.get("log_file"),
+        DEFAULT_LOG_PATH,
+    )
 
     return ServerConfig(
         host=str(host),
@@ -70,6 +82,7 @@ def build_config(args) -> ServerConfig:
         styles_path=DEFAULT_STYLES_PATH,
         debug_shutdown=debug_shutdown,
         upload_max_bytes=int(upload_max_mb) * 1024 * 1024,
+        log_path=resolve_log_path(log_path, Path(args.config)),
     )
 
 
@@ -85,7 +98,9 @@ def load_config_file(path: Path):
     if not isinstance(data, dict):
         raise SystemExit(f"Config file {path} must contain a JSON object")
 
-    allowed_keys = {"host", "port", "ollama_url", "debug_shutdown", "upload_max_mb"}
+    allowed_keys = {
+        "host", "port", "ollama_url", "debug_shutdown", "upload_max_mb", "log_file",
+    }
     unknown_keys = sorted(set(data) - allowed_keys)
     if unknown_keys:
         raise SystemExit(f"Unknown config keys in {path}: {', '.join(unknown_keys)}")
@@ -98,6 +113,15 @@ def first_value(*values):
         if value is not None:
             return value
     return None
+
+
+def resolve_log_path(value, config_path: Path) -> Path:
+    """Make config-relative log files independent of the service working directory."""
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+
+    return (config_path.expanduser().parent / path).resolve()
 
 
 def parse_int(value):
