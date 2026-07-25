@@ -21,7 +21,8 @@ Edit `config.json` if needed:
   "port": 8080,
   "ollama_url": "http://127.0.0.1:11434",
   "debug_shutdown": false,
-  "upload_max_mb": 10
+  "upload_max_mb": 10,
+  "log_file": "ollama-console.log"
 }
 ```
 
@@ -52,6 +53,14 @@ python3 server.py --config /path/to/config.json
 ```
 
 `config.json` is ignored by git for local deployment changes. CLI flags and legacy environment variables still work as overrides.
+
+## Logging
+
+The server writes request activity, errors, and uncaught handler exceptions to
+`ollama-console.log` by default. The log is opened in append mode, so restarting
+the server preserves previous entries. Set `log_file` in `config.json`, pass
+`--log-file /path/to/server.log`, or set `OLLAMA_CONSOLE_LOG_FILE` to use another
+location.
 
 For local debugging, start it with an in-page exit button:
 

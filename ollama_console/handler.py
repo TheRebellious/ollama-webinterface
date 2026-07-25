@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 from http.server import BaseHTTPRequestHandler
 
@@ -7,11 +8,14 @@ from .ollama import proxy_ollama
 from .system_info import get_system_info
 
 
+LOGGER = logging.getLogger("ollama_console")
+
+
 class OllamaConsoleHandler(BaseHTTPRequestHandler):
     config = None
 
     def log_message(self, format, *args):
-        print("%s - %s" % (self.address_string(), format % args))
+        LOGGER.info("%s - %s", self.address_string(), format % args)
 
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
@@ -74,6 +78,7 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
         try:
             content = path.read_bytes()
         except OSError as error:
+            LOGGER.exception("Could not read static file %s", path)
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -112,6 +117,7 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
                 self.config.upload_max_bytes,
             )
         except (ValueError, FileExtractionError) as error:
+            LOGGER.warning("File extraction request rejected: %s", error)
             self.send_json({"error": str(error)}, status=400)
             return
 
