@@ -53,7 +53,7 @@
       height: 100dvh;
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(300px, clamp(340px, 28vw, 430px)) minmax(0, 1fr);
+      grid-template-columns: 430px minmax(0, 1fr);
       overflow: hidden;
       transition: grid-template-columns .18s ease;
     }
