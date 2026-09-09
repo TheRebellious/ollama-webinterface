@@ -5,7 +5,23 @@ import { applyDetectedContext } from "../ui/settings.js";
 export async function fetchRunningModelNames() { try { return (await get("/api/ps")).models?.map((model) => model.name).filter(Boolean) || []; } catch { return []; } }
 export async function loadRunningModels() { if (!el.model.value) return setModelRuntime("", "No model selected"); const names = await fetchRunningModelNames(); setModelRuntime(names.includes(el.model.value) ? "ok" : "", names.includes(el.model.value) ? "Selected model is active" : "Selected model is idle"); }
 export async function loadModels() { setStatus("", "Checking server..."); const previous = el.model.value; el.model.innerHTML = ""; try { const [tags, runningNames] = await Promise.all([get("/api/tags"), fetchRunningModelNames()]); const running = new Set(runningNames), names = (tags.models || []).map((model) => model.name).sort((a, b) => Number(running.has(b)) - Number(running.has(a)) || a.localeCompare(b)); if (!names.length) { setStatus("bad", "No models found"); el.activeModel.textContent = "Pull a model with ollama pull"; return; } names.forEach((name) => el.model.add(new Option(running.has(name) ? `${name} (active)` : name, name))); el.model.value = names.includes(previous) ? previous : runningNames.find((name) => names.includes(name)) || names[0]; el.activeModel.textContent = el.model.value; setStatus("ok", "Connected"); await Promise.all([loadRunningModels(), loadModelContext()]); } catch { setStatus("bad", "Ollama unavailable"); el.activeModel.textContent = "Cannot reach Ollama"; setModelRuntime("bad", "Runtime unavailable"); } finally { setBusy(false); } }
-export async function loadModelContext() { if (!el.model.value) return applyDetectedContext(null); try { applyDetectedContext(extractContextTokens(await (await post("/api/show", { model: el.model.value })).json())); } catch { applyDetectedContext(null); } }
+export async function loadModelContext() {
+  if (!el.model.value) return applyDetectedContext(null, null);
+  try {
+    const response = await post("/api/context-recommendation", { model: el.model.value });
+    const data = await response.json();
+    applyDetectedContext(data.recommendedContext, data.modelContext, data.source);
+  } catch {
+    try {
+      const response = await post("/api/show", { model: el.model.value });
+      const data = await response.json();
+      const context = extractContextTokens(data);
+      applyDetectedContext(context, context, "model");
+    } catch {
+      applyDetectedContext(null, null);
+    }
+  }
+}
 export function extractContextTokens(data) {
   const isContextLimitKey = (key) => {
     const normalized = key.toLowerCase();

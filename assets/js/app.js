@@ -1,17 +1,36 @@
 import { el } from "./ui/elements.js";
 import { state } from "./state.js";
 import { setSettingsOpen, setSidebarCollapsed, setStatus } from "./ui/status.js";
-import { updateSettingRanges } from "./ui/settings.js";
+import { effectiveContextSize, updateSettingRanges } from "./ui/settings.js";
 import { renderMessages } from "./ui/chat.js";
 import { createConversation, deleteCurrentConversation, loadConversation, loadConversations, saveCurrentConversation } from "./ui/conversations.js";
 import { addFiles, renderAttachments } from "./services/files.js";
 import { loadModels, loadModelContext, loadRunningModels } from "./services/models.js";
 import { loadConfig, loadSystemInfo } from "./services/system.js";
 import { sendPrompt } from "./services/chat.js";
+import { post } from "./api/client.js";
 
 el.composer.addEventListener("submit", (event) => { event.preventDefault(); sendPrompt(); });
 el.prompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendPrompt(); } });
 el.model.addEventListener("change", () => { el.activeModel.textContent = el.model.value || "No model selected"; loadRunningModels(); loadModelContext(); });
+el.preloadModel.addEventListener("click", async () => {
+  if (!el.model.value || state.busy) return;
+  el.preloadModel.disabled = true;
+  el.preloadModel.textContent = "Loading model...";
+  try {
+    await post("/api/preload", { model: el.model.value, context: effectiveContextSize() });
+    el.preloadModel.textContent = "Model preloaded";
+    await loadRunningModels();
+  } catch (error) {
+    el.preloadModel.textContent = "Preload failed";
+    console.error("Could not preload model", error);
+  } finally {
+    setTimeout(() => {
+      el.preloadModel.disabled = false;
+      el.preloadModel.textContent = "Preload model";
+    }, 2500);
+  }
+});
 el.conversationSelect.addEventListener("change", () => loadConversation(el.conversationSelect.value));
 el.newConversation.addEventListener("click", () => { createConversation(); el.prompt.focus(); });
 el.deleteConversation.addEventListener("click", deleteCurrentConversation);

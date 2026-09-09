@@ -105,7 +105,7 @@ The model selector shows whether the currently selected Ollama model is active o
 
 ## Context size
 
-The context setting can run in automatic mode. The UI asks Ollama for the selected model details through `/api/show`, detects the model's maximum context length when available, and sends that as `num_ctx`. Manual mode is still available if you want to set a smaller value.
+The context setting can run in automatic mode. The UI asks the server for a hardware-based recommendation using 95% of currently available GPU memory when a GPU is available, reserving the estimated model footprint. System RAM is used only when no GPU is detected or Ollama is running the model on the CPU. The recommendation is clamped to the model's maximum context length before being sent as `num_ctx`. Manual mode is still available when you want to choose a smaller value.
 
 ## Mobile layout
 

@@ -2,9 +2,11 @@ import json
 import logging
 import mimetypes
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler
 
 from .file_extract import FileExtractionError, extract_uploaded_file
+from .context import get_context_recommendation
 from .ollama import proxy_ollama
 from .system_info import get_system_info
 
@@ -82,6 +84,14 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             proxy_ollama(self, "POST", "/api/show")
             return
 
+        if self.path == "/api/context-recommendation":
+            self.context_recommendation()
+            return
+
+        if self.path == "/api/preload":
+            self.preload_model()
+            return
+
         if self.path == "/api/shutdown":
             self.shutdown_server()
             return
@@ -140,6 +150,44 @@ class OllamaConsoleHandler(BaseHTTPRequestHandler):
             return
 
         self.send_json(result)
+
+    def context_recommendation(self):
+        try:
+            payload = self.read_json()
+            model = str(payload.get("model", "")).strip()
+            if not model:
+                raise ValueError("A model is required")
+            result = get_context_recommendation(
+                self.config,
+                model,
+                get_system_info(self.config.index_path.parent),
+            )
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, urllib.error.URLError) as error:
+            self.send_json({"error": str(error)}, status=502)
+            return
+
+        self.send_json(result)
+
+    def preload_model(self):
+        try:
+            payload = self.read_json()
+            model = str(payload.get("model", "")).strip()
+            if not model:
+                raise ValueError("A model is required")
+            request_body = json.dumps({
+                "model": model,
+                "prompt": "",
+                "stream": False,
+                "keep_alive": "30m",
+                "options": {
+                    "num_ctx": int(payload.get("context", 4096)),
+                },
+            }).encode("utf-8")
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            self.send_json({"error": str(error)}, status=400)
+            return
+
+        proxy_ollama(self, "POST", "/api/generate", request_body)
 
     def shutdown_server(self):
         if not self.config.debug_shutdown:
