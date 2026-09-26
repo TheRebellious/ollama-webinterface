@@ -1,9 +1,10 @@
+"""Configuration loading and validation for Ollama Console."""
 import argparse
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-
+from urllib.parse import urlparse
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -27,12 +28,8 @@ class ServerConfig:
     debug_shutdown: bool
     upload_max_bytes: int
     log_path: Path
-    # Optional authentication token (SE-001). When set, all /api/* requests
-    # must carry an Authorization: Bearer <token> header.
     auth_token: str | None
-    # Rate limiting (SE-003). 0 = disabled.
     rate_limit_per_minute: int
-    # CORS allowed origin (SE-005). "*" = any origin, "" = disabled.
     cors_origin: str
 
 
@@ -68,24 +65,58 @@ def parse_args():
     return parser.parse_args()
 
 
+def validate_config(
+    host: str,
+    port: int,
+    ollama_url: str,
+    upload_max_mb: int,
+    rate_limit_per_minute: int,
+) -> None:
+    """Validate configuration parameters (CR-006, CI-002).
+
+    Raises ValueError or SystemExit if configuration values are out of bounds or malformed.
+    """
+    if not host or not isinstance(host, str) or not host.strip():
+        raise ValueError("Server host must be a non-empty string")
+
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Server port must be between 1 and 65535, got {port}")
+
+    parsed_url = urlparse(ollama_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError(
+            f"ollama_url must be a valid HTTP/HTTPS URL with host, got '{ollama_url}'"
+        )
+
+    if upload_max_mb < 1 or upload_max_mb > 1024:
+        raise ValueError(
+            f"upload_max_mb must be between 1 and 1024 MB, got {upload_max_mb}"
+        )
+
+    if rate_limit_per_minute < 0:
+        raise ValueError(
+            f"rate_limit_per_minute cannot be negative, got {rate_limit_per_minute}"
+        )
+
+
 def build_config(args) -> ServerConfig:
     file_config = load_config_file(Path(args.config))
 
-    host = first_value(args.host, os.getenv("OLLAMA_UI_HOST"), file_config.get("host"), "0.0.0.0")
-    port = first_value(args.port, parse_int(os.getenv("OLLAMA_UI_PORT")), file_config.get("port"), 8080)
-    ollama_url = first_value(
+    host = str(first_value(args.host, os.getenv("OLLAMA_UI_HOST"), file_config.get("host"), "0.0.0.0"))
+    port = int(first_value(args.port, parse_int(os.getenv("OLLAMA_UI_PORT")), file_config.get("port"), 8080))
+    ollama_url = str(first_value(
         args.ollama_url,
         os.getenv("OLLAMA_URL"),
         file_config.get("ollama_url"),
         DEFAULT_OLLAMA_URL,
-    )
+    )).strip()
     debug_shutdown = bool(first_value(
-        args.debug_shutdown if args.debug_shutdown else None,
+        args.debug_shutdown if getattr(args, "debug_shutdown", False) else None,
         parse_bool(os.getenv("OLLAMA_DEBUG_SHUTDOWN")),
         file_config.get("debug_shutdown"),
         False,
     ))
-    upload_max_mb = parse_int(first_value(file_config.get("upload_max_mb"), 10))
+    upload_max_mb = int(first_value(parse_int(file_config.get("upload_max_mb")), 10))
     log_path = first_value(
         args.log_file,
         os.getenv("OLLAMA_CONSOLE_LOG_FILE"),
@@ -93,7 +124,6 @@ def build_config(args) -> ServerConfig:
         DEFAULT_LOG_PATH,
     )
 
-    # Security options — all default to "off" for backwards compatibility
     auth_token = first_value(
         getattr(args, "auth_token", None),
         os.getenv("OLLAMA_CONSOLE_AUTH_TOKEN"),
@@ -113,18 +143,30 @@ def build_config(args) -> ServerConfig:
         "",
     ))
 
+    # Validate all settings before returning
+    try:
+        validate_config(
+            host=host,
+            port=port,
+            ollama_url=ollama_url,
+            upload_max_mb=upload_max_mb,
+            rate_limit_per_minute=rate_limit_per_minute,
+        )
+    except ValueError as error:
+        raise SystemExit(f"Configuration error: {error}") from error
+
     return ServerConfig(
-        host=str(host),
-        port=int(port),
-        ollama_url=str(ollama_url),
+        host=host,
+        port=port,
+        ollama_url=ollama_url,
         index_path=DEFAULT_INDEX_PATH,
         manifest_path=DEFAULT_MANIFEST_PATH,
         icon_path=DEFAULT_ICON_PATH,
         styles_path=DEFAULT_STYLES_PATH,
         debug_shutdown=debug_shutdown,
-        upload_max_bytes=int(upload_max_mb) * 1024 * 1024,
+        upload_max_bytes=upload_max_mb * 1024 * 1024,
         log_path=resolve_log_path(log_path, Path(args.config)),
-        auth_token=auth_token if auth_token else None,
+        auth_token=str(auth_token).strip() if auth_token else None,
         rate_limit_per_minute=rate_limit_per_minute,
         cors_origin=cors_origin,
     )
@@ -182,7 +224,7 @@ def parse_bool(value):
     if value is None or value == "":
         return None
 
-    normalized = value.strip().lower()
+    normalized = str(value).strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
         return True
     if normalized in {"0", "false", "no", "off"}:

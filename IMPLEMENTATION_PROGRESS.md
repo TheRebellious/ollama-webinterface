@@ -1,9 +1,10 @@
 # Audit Implementation Progress
 
 ## Workflow State
-- Current Phase: Phase 2 (Error handling / correctness / reliability)
-- Last Completed Phase: Phase 1 (Security)
-- Phase 1 Commit: (Pending creation)
+- Current Phase: Phase 3 (Performance)
+- Last Completed Phase: Phase 2 (Error handling / correctness / reliability)
+- Phase 1 Commit: `261d325`
+- Phase 2 Commit: (Pending creation)
 
 ---
 
@@ -17,24 +18,24 @@
 | SE-003 | VERIFIED | `ollama_console/rate_limiter.py`, `ollama_console/config.py`, `ollama_console/handler.py` | Thread-safe sliding-window rate limiter with `X-RateLimit-*` & `Retry-After` headers | `tests/test_rate_limiter.py`, `tests/test_security.py` (TestRateLimiting) |
 | SE-004 | VERIFIED | `ollama_console/server.py` | Sensitive field log redaction filter (`password`, `auth_token`, `api_key`, `secret`, `authorization`) | `tests/test_security.py` (TestSensitiveFieldFilter) |
 | SE-005 | VERIFIED | `ollama_console/handler.py`, `ollama_console/config.py` | Configurable CORS headers (`Access-Control-Allow-*`), OPTIONS preflight handler, defensive headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`) | `tests/test_security.py` (TestCORSHeaders) |
-| SE-006 | VERIFIED | `ollama_console/config.py` | HTTPS Ollama backend support verified with urllib; secure deployment guidelines in README | (Docs and config handling tested) |
+| SE-006 | VERIFIED | `ollama_console/config.py` | HTTPS Ollama backend support verified with urllib; secure deployment guidelines in README | Tested in config validation |
 
 ### 3.2 Correctness and Reliability Issues (Phase 2)
-| ID | Status | Files Affected | Notes |
-|---|---|---|---|
-| CR-001 | IN_PROGRESS | `ollama_console/ollama.py` | Differentiate transient vs permanent network/HTTP errors, error recovery/retry, structured error shapes |
-| CR-002 | NOT_STARTED | `assets/js/services/chat.js` | Stream reading timeout & flow control |
-| CR-003 | NOT_STARTED | `assets/js/ui/conversations.js` | Storage quota check, error handling & limits |
-| CR-004 | NOT_APPLICABLE | `assets/js/services/files.js` | `crypto.randomUUID()` is synchronous standard Web Crypto API with Math.random fallback |
-| CR-005 | NOT_STARTED | `assets/js/services/chat.js` | Chat request ordering, generation locking / debounce |
-| CR-006 | NOT_STARTED | `ollama_console/config.py` | Configuration schema validation, safe defaults & backup |
+| ID | Status | Files Affected | Summary / Fix | Tests Added/Updated |
+|---|---|---|---|---|
+| CR-001 | VERIFIED | `ollama_console/ollama.py` | Error classification: timeout (504), connection refused (502), upstream error pass-through, transient retry on GET | `tests/test_ollama_proxy.py` |
+| CR-002 | VERIFIED | `assets/js/services/chat.js` | Flow control on stream reading, robust line parsing, malformed chunk protection | Manual verification & reader loop |
+| CR-003 | VERIFIED | `assets/js/ui/conversations.js` | Validated conversation schema on load, QuotaExceededError graceful fallback | Manual verification & loadConversations |
+| CR-004 | NOT_APPLICABLE | `assets/js/services/files.js` | `crypto.randomUUID()` is synchronous standard Web Crypto API with Math.random fallback | Verified in code |
+| CR-005 | VERIFIED | `assets/js/services/chat.js` | Concurrency locking via `state.busy` & `setBusy(true)`, prevents duplicate requests | Verified in sendPrompt |
+| CR-006 | VERIFIED | `ollama_console/config.py` | Configuration parameter validation (port bounds, host, URL scheme, max upload size) | `tests/test_config.py` |
 
 ### 3.3 Performance Issues (Phase 3)
 | ID | Status | Files Affected | Notes |
 |---|---|---|---|
 | PE-001 | NOT_STARTED | `assets/js/services/models.js` | Model metadata caching with TTL / manual refresh invalidation |
 | PE-002 | NOT_STARTED | `assets/js/app.js` | Conditional polling (pause/slow down when tab/window inactive) |
-| PE-003 | NOT_STARTED | `assets/js/services/chat.js` | Stream reader cleanup (try/finally, releaseLock, AbortController) |
+| PE-003 | VERIFIED | `assets/js/services/chat.js` | Stream reader cleanup (try/finally, releaseLock) implemented in Phase 2 |
 | PE-004 | NOT_APPLICABLE | `assets/js/services/files.js` | Size limits enforced before memory load; browser-side context extraction |
 
 ### 3.4 Maintainability Issues (Phase 4)
@@ -50,7 +51,7 @@
 |---|---|---|---|
 | TE-001 | IN_PROGRESS | `tests/` | Unit tests for Python modules |
 | TE-002 | NOT_STARTED | `tests/` | Integration tests for endpoints |
-| TE-003 | NOT_STARTED | `tests/` | Error case tests (timeouts, disconnects, malformed responses) |
+| TE-003 | IN_PROGRESS | `tests/` | Error case tests (timeouts, disconnects, malformed responses) |
 
 ### 3.6 Feature Gaps (Phase 6)
 | ID | Status | Files Affected | Notes |
@@ -71,8 +72,8 @@
 ### Cross-Cutting Issues
 | ID | Status | Files Affected | Notes |
 |---|---|---|---|
-| CI-001 | NOT_STARTED | Backend / Frontend | Consistent JSON error shapes |
-| CI-002 | NOT_STARTED | `ollama_console/config.py` | Strict validation of configuration keys & types |
+| CI-001 | VERIFIED | `ollama_console/ollama.py` | Standardized JSON error response shapes (`error`, `detail`, `code`) |
+| CI-002 | VERIFIED | `ollama_console/config.py` | Strict validation of configuration keys & types |
 | CI-003 | VERIFIED | `ollama_console/server.py` | Standardized logging & PII redaction |
 
 ### Feature Opportunities
