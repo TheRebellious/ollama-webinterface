@@ -1,18 +1,47 @@
+"""Hardware-based context window recommendation algorithm for Ollama models.
+
+Estimates the optimal token context window (num_ctx) that fits comfortably in
+available host RAM or GPU VRAM without risking out-of-memory errors (OOM).
+"""
 import json
 import math
 import re
 import urllib.request
 
-
+# Metadata keys in Ollama model details that define context capacity
 CONTEXT_KEYS = {"context_length", "num_ctx"}
+
+# Minimum context floor (512 tokens) to guarantee functional prompting
 MIN_CONTEXT = 512
+
+# Context granularity step (rounds down to multiples of 512 for cache efficiency)
 CONTEXT_STEP = 512
+
+# Default estimated key-value (KV) cache memory footprint per token if layer details are missing
+# (128 KB/token corresponds to a typical 8B-14B parameter model with 32 layers, GQA)
 DEFAULT_KV_BYTES_PER_TOKEN = 128 * 1024
+
+# Fraction of available host RAM safe to allocate for Ollama KV cache (50%)
 RAM_MEMORY_FRACTION = 0.50
+
+# Fraction of available free GPU VRAM safe to allocate for Ollama KV cache (95%)
 GPU_MEMORY_FRACTION = 0.95
 
+# Absolute minimum memory safety reserve for context allocation (256 MB)
+MIN_CONTEXT_MEMORY_RESERVE_BYTES = 256 * 1024 * 1024
 
-def get_context_recommendation(config, model, system_info):
+
+def get_context_recommendation(config, model: str, system_info: dict) -> dict:
+    """Compute context window recommendation based on model architecture and free hardware memory.
+
+    Args:
+        config: Server configuration containing Ollama upstream URL.
+        model: Ollama model name string.
+        system_info: Dictionary containing host CPU, RAM, and GPU statistics.
+
+    Returns:
+        Dictionary with modelContext, recommendedContext, kvBytesPerToken, memoryBudgetBytes.
+    """
     show = ollama_json(config.ollama_url, "/api/show", {"model": model})
     running = ollama_json(config.ollama_url, "/api/ps", None)
     model_info = show.get("model_info") or {}
@@ -40,7 +69,8 @@ def get_context_recommendation(config, model, system_info):
     }
 
 
-def ollama_json(base_url, path, payload):
+def ollama_json(base_url: str, path: str, payload: dict | None) -> dict:
+    """Make a JSON request to an Ollama endpoint and parse the response."""
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         base_url.rstrip("/") + path,
@@ -52,7 +82,8 @@ def ollama_json(base_url, path, payload):
         return json.loads(response.read().decode("utf-8"))
 
 
-def find_context_limit(value):
+def find_context_limit(value) -> int | None:
+    """Recursively search a nested dictionary or list for known context length keys."""
     if isinstance(value, list):
         for item in value:
             nested = find_context_limit(item)
@@ -73,7 +104,8 @@ def find_context_limit(value):
     return None
 
 
-def estimate_kv_bytes_per_token(model_info):
+def estimate_kv_bytes_per_token(model_info: dict) -> int:
+    """Estimate KV cache memory consumption in bytes per token from GGUF metadata."""
     layers = find_metadata_number(model_info, "block_count")
     embedding = find_metadata_number(model_info, "embedding_length")
     kv_heads = find_metadata_number(model_info, "attention.head_count_kv")
@@ -87,7 +119,8 @@ def estimate_kv_bytes_per_token(model_info):
     return DEFAULT_KV_BYTES_PER_TOKEN
 
 
-def find_metadata_number(value, suffix):
+def find_metadata_number(value, suffix: str) -> float | None:
+    """Search dictionary keys ending with suffix and parse numeric value."""
     if not isinstance(value, dict):
         return None
     for key, item in value.items():
@@ -101,7 +134,8 @@ def find_metadata_number(value, suffix):
     return None
 
 
-def estimate_context_memory_budget(system_info, running, model, details=None):
+def estimate_context_memory_budget(system_info: dict, running: dict, model: str, details: dict | None = None) -> int:
+    """Calculate maximum safe memory in bytes to dedicate to KV cache."""
     memory = system_info.get("memory") or {}
     available_ram = parse_number(memory.get("availableBytes")) or 0
     ram_budget = int(available_ram * RAM_MEMORY_FRACTION)
@@ -120,13 +154,14 @@ def estimate_context_memory_budget(system_info, running, model, details=None):
     )
     processor = str((runtime or {}).get("processor", "")).lower()
     if processor == "cpu" or not gpu_budget:
-        return max(ram_budget, 256 * 1024 * 1024)
+        return max(ram_budget, MIN_CONTEXT_MEMORY_RESERVE_BYTES)
     if runtime is None:
         gpu_budget -= estimate_model_bytes(details or {})
-    return max(gpu_budget, 256 * 1024 * 1024)
+    return max(gpu_budget, MIN_CONTEXT_MEMORY_RESERVE_BYTES)
 
 
-def estimate_model_bytes(details):
+def estimate_model_bytes(details: dict) -> int:
+    """Estimate weights footprint in bytes from parameter size and quantization level."""
     value = str(details.get("parameter_size", ""))
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([TGMK]?)B", value, re.IGNORECASE)
     if not match:
@@ -141,13 +176,15 @@ def estimate_model_bytes(details):
     return int(parameter_count * scale * bits / 8 * 1.20)
 
 
-def floor_step(value):
+def floor_step(value: float) -> int:
+    """Round down value to the nearest integer multiple of CONTEXT_STEP."""
     if not math.isfinite(value):
         return MIN_CONTEXT
     return int(value // CONTEXT_STEP) * CONTEXT_STEP
 
 
-def parse_number(value):
+def parse_number(value) -> float | None:
+    """Parse string or float number safely, returning None on failure."""
     try:
         number = float(value)
     except (TypeError, ValueError):
