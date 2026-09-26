@@ -21,6 +21,40 @@ export async function get(path) {
 }
 
 /**
+ * Retry a fetch request with exponential backoff on transient network errors.
+ * Returns the response or null if max retries exhausted.
+ *
+ * @param {string} path - Request path.
+ * @param {object} [options] - Fetch options.
+ * @param {number} [maxRetries=3] - Maximum retry attempts.
+ * @param {number} [baseDelay=1000] - Initial delay in ms between retries.
+ * @returns {Promise<Response|null>} Response or null after max retries.
+ */
+export async function fetchWithRetry(path, options = {}, maxRetries = 3, baseDelay = 1000) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(path, options);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`Network error: ${error.message}, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  // Handle errors after retries exhausted
+  if (lastError instanceof TypeError && lastError.message.includes("fetch")) {
+    console.warn("Network error during fetch");
+  } else if (lastError.message === "Failed to fetch") {
+    console.warn("Failed to fetch - may be offline or server unreachable");
+  }
+  return null;
+}
+
+/**
  * Send an HTTP POST request with JSON payload.
  *
  * @param {string} path - Request URL/path.
@@ -38,4 +72,44 @@ export async function post(path, payload) {
     throw new Error(message || `HTTP ${response.status}`);
   }
   return response;
+}
+
+/**
+ * Retry a POST request with exponential backoff on transient network errors.
+ * Returns the response or null if max retries exhausted.
+ *
+ * @param {string} path - Request path.
+ * @param {any} payload - Object to JSON-serialize and send in request body.
+ * @param {object} [options] - Fetch options.
+ * @param {number} [maxRetries=3] - Maximum retry attempts.
+ * @param {number} [baseDelay=1000] - Initial delay in ms between retries.
+ * @returns {Promise<Response|null>} Response or null after max retries.
+ */
+export async function postWithRetry(path, payload, options = {}, maxRetries = 3, baseDelay = 1000) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        ...options,
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`Network error: ${error.message}, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  // Handle errors after retries exhausted
+  if (lastError instanceof TypeError && lastError.message.includes("fetch")) {
+    console.warn("Network error during fetch");
+  } else if (lastError.message === "Failed to fetch") {
+    console.warn("Failed to fetch - may be offline or server unreachable");
+  }
+  return null;
 }

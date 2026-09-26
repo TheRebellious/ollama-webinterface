@@ -140,3 +140,79 @@ export function deleteCurrentConversation() {
   }
   loadConversation(state.conversations[0].id);
 }
+
+/**
+ * Export conversations to a JSON file for backup or transfer.
+ */
+export function exportConversations() {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    version: "1.0",
+    conversations: state.conversations,
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ollama-conversations-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  console.log("Conversations exported successfully");
+}
+
+/**
+ * Import conversations from a user-selected JSON file.
+ */
+export function importConversations(event) {
+  const fileInput = document.getElementById("importFileInput");
+  const file = event.target.files?.[0];
+
+  if (!file) {
+    alert("Please select a JSON file to import.");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const importedData = JSON.parse(e.target.result);
+
+      // Validate structure
+      if (!importedData.conversations || !Array.isArray(importedData.conversations)) {
+        throw new Error("Invalid file format: missing 'conversations' array");
+      }
+
+      // Merge conversations, avoiding duplicates by ID
+      const existingIds = new Set(state.conversations.map((c) => c.id));
+      let importedCount = 0;
+
+      importedData.conversations.forEach((conv) => {
+        if (!existingIds.has(conv.id)) {
+          state.conversations.push(conv);
+          importedCount++;
+        }
+      });
+
+      // Clear input to allow re-selecting same file
+      fileInput.value = "";
+
+      // Persist and refresh UI
+      persistConversations();
+      renderConversationSelect();
+      renderMessages();
+
+      console.log(`Imported ${importedCount} conversations`);
+    } catch (error) {
+      console.error("Failed to import conversations:", error);
+      alert(`Failed to import: ${error.message}`);
+    }
+  };
+  reader.readAsText(file);
+}

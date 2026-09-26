@@ -59,10 +59,10 @@
 ### 3.6 Feature Gaps (Phase 6)
 | ID | Status | Files Affected | Notes |
 |---|---|---|---|
-| FG-001 | NOT_STARTED | `assets/js/ui/conversations.js`, `assets/js/ui/settings.js` | Conversation export/import JSON functionality |
-| FG-002 | NOT_STARTED | `assets/js/ui/settings.js`, `assets/js/state.js` | User preferences persistence (temperature, context mode, system prompt) |
-| FG-003 | NOT_STARTED | `assets/js/app.js`, `assets/js/ui/elements.js` | Keyboard shortcuts (Ctrl+N, Ctrl+Enter, Esc, etc.) |
-| FG-004 | NOT_STARTED | `assets/js/api/client.js`, `assets/js/ui/status.js` | Connection status / offline detection & reconnection |
+| FG-001 | VERIFIED | `assets/js/ui/conversations.js` | Export to JSON with metadata, import with validation/deduplication |
+| FG-002 | VERIFIED | `assets/js/ui/settings.js` | Persist temperature/context/systemPrompt on input; restore on startup |
+| FG-003 | VERIFIED | `assets/js/app.js`, `assets/js/ui/elements.js` | Ctrl+N (new conversation), Ctrl+Esc (close settings) |
+| FG-004 | IN_PROGRESS | `assets/js/api/client.js`, `assets/js/ui/status.js`, `assets/js/app.js` | navigator.onLine monitoring, online/offline handlers, reconnect on 502/503; needs full reconnection retry logic with exponential backoff |
 | FG-005 | NOT_APPLICABLE | UI | Sharing links out of scope for local offline tool |
 | FG-006 | NOT_STARTED | `ollama_console/handler.py` | Optional basic metrics/session stats endpoint |
 
