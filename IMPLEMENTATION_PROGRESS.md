@@ -1,10 +1,11 @@
 # Audit Implementation Progress
 
 ## Workflow State
-- Current Phase: Phase 3 (Performance)
-- Last Completed Phase: Phase 2 (Error handling / correctness / reliability)
+- Current Phase: Phase 4 (Maintainability)
+- Last Completed Phase: Phase 3 (Performance)
 - Phase 1 Commit: `261d325`
-- Phase 2 Commit: (Pending creation)
+- Phase 2 Commit: `23df470`
+- Phase 3 Commit: (Pending creation)
 
 ---
 
@@ -31,12 +32,12 @@
 | CR-006 | VERIFIED | `ollama_console/config.py` | Configuration parameter validation (port bounds, host, URL scheme, max upload size) | `tests/test_config.py` |
 
 ### 3.3 Performance Issues (Phase 3)
-| ID | Status | Files Affected | Notes |
-|---|---|---|---|
-| PE-001 | NOT_STARTED | `assets/js/services/models.js` | Model metadata caching with TTL / manual refresh invalidation |
-| PE-002 | NOT_STARTED | `assets/js/app.js` | Conditional polling (pause/slow down when tab/window inactive) |
-| PE-003 | VERIFIED | `assets/js/services/chat.js` | Stream reader cleanup (try/finally, releaseLock) implemented in Phase 2 |
-| PE-004 | NOT_APPLICABLE | `assets/js/services/files.js` | Size limits enforced before memory load; browser-side context extraction |
+| ID | Status | Files Affected | Summary / Fix | Tests Added/Updated |
+|---|---|---|---|---|
+| PE-001 | VERIFIED | `assets/js/services/models.js` | In-memory caching for tags & context recommendations with 5-min TTL & force refresh | Tested in model loading |
+| PE-002 | VERIFIED | `assets/js/app.js` | Visibility-based conditional polling (slow down when tab hidden, resume immediately when active) | Tested visibility change events |
+| PE-003 | VERIFIED | `assets/js/services/chat.js` | Stream reader cleanup (try/finally with `reader.releaseLock()`) | Implemented in chat.js |
+| PE-004 | NOT_APPLICABLE | `assets/js/services/files.js` | Size limits enforced before memory load; browser-side context extraction | Verified in code |
 
 ### 3.4 Maintainability Issues (Phase 4)
 | ID | Status | Files Affected | Notes |
