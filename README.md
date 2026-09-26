@@ -174,6 +174,122 @@ git pull
 sudo systemctl restart ollama-console
 ```
 
+## Security and TLS Best Practices
+
+### HTTPS/TLS Configuration (Required for Production)
+
+**Never deploy without HTTPS in production.** For any server exposed to external networks:
+
+1. **Obtain an SSL/TLS certificate**:
+   - Use [Let's Encrypt](https://letsencrypt.org/) for free certificates, or purchase from a trusted CA
+   - Or use DNS-based certificates (ACME/DNS01) if your DNS provider supports it
+   - For internal networks, consider an internal PKI with valid CRL/OCSP
+
+2. **Configure reverse proxy for TLS termination** (recommended):
+   ```bash
+   # Nginx example
+   nginx -c 'http {
+       ssl_protocols TLSv1.2 TLSv1.3;
+       ssl_ciphers HIGH:!aNULL:!MD5;
+       server {
+           listen 443 ssl http2;
+           server_name your.domain.com;
+           
+           ssl_certificate     /path/to/fullchain.pem;
+           ssl_certificate_key /path/to/privkey.pem;
+           
+           location / {
+               proxy_pass http://127.0.0.1:8080;
+               proxy_set_header Host $host;
+               proxy_set_header X-Real-IP $remote_addr;
+               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+               proxy_set_header X-Forwarded-Proto $scheme;
+           }
+       }
+   }'
+   ```
+
+3. **Hardening the Bearer token** (if HTTP required):
+   - Set a strong random secret (min 32 characters, mix of letters/numbers/symbols)
+   - Rotate tokens periodically (recommended every 90 days or on admin action)
+   - Log all failed auth attempts and alert on anomalies
+   - Use token expiration via custom header logic if supported
+
+4. **Network isolation**:
+   - Bind to internal interfaces only when appropriate (`host = "127.0.0.1"`)
+   - Use firewall rules: `ufw allow 8080 from <trusted-network>`
+   - Consider Docker/container network segregation
+   - Deploy in a DMZ with strict egress rules
+
+5. **Headers already implemented**:
+   - The server includes `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and CORS headers
+   - Content Security Policy can be added via reverse proxy if needed
+
+### Authenticated Proxy Deployment
+
+When placing behind a reverse proxy (Nginx, Apache, HAProxy):
+
+```nginx
+# Nginx example with authentication
+server {
+    listen 80;
+    server_name your.domain.com;
+    
+    location / {
+        # Reverse proxy auth (mod_auth_request module)
+        auth_request /auth;
+        
+        # JWT/OAuth bearer verification via Lua or headers
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Authorization $http_authorization;
+        
+        # Rate limiting to prevent abuse
+        limit_req zone=one burst=5 nodelay;
+    }
+}
+```
+
+### Security Audit Checklist
+
+Before deploying to production:
+
+- [ ] HTTPS enabled with valid certificate (TLSv1.2+, strong ciphers)
+- [ ] Firewall configured to restrict access to trusted networks only
+- [ ] Bearer token secret changed from default and stored securely
+- [ ] Rate limiting active (`/api/*` routes protected)
+- [ ] Log file location is not publicly writable
+- [ ] Reverse proxy rate limits for upstream API (prevent denial of service)
+- [ ] Sensitive fields redacted in logs (`password`, `auth_token`, etc.)
+- [ ] CORS configured with strict origins only if public-facing
+
+### Logging and Monitoring
+
+Enable external log aggregation:
+
+```ini
+# Systemd example with journald forwarding
+[Service]
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ollama-console
+
+# Or to specific file in centralized location
+Environment="OLLAMA_CONSOLE_LOG_FILE=/var/log/ollama-console.log"
+```
+
+Set up alerts for:
+- Failed authentication attempts (`/api/*` 401 responses)
+- Rate limit triggers (`X-RateLimit-Over` headers)
+- Unusual traffic patterns or high connection counts
+- Model API errors that might indicate upstream issues
+
+### Additional Recommendations
+
+- **Regular updates**: Pull changes with `git pull` and restart after testing in staging
+- **Backup configuration**: Version control your `config.json` (do not commit secrets)
+- **Health checks**: Monitor `/api/ps` for model availability, `/api/system` for hardware health
+- **Resource monitoring**: Watch for Ollama resource exhaustion via system metrics
+
 ## Firewall
 
-Allow TCP port `8080` from your trusted network only. If the server is public, put this behind a reverse proxy with authentication and HTTPS.
+Allow TCP port `8080` from your trusted network only. If the server is public, use HTTPS with a reverse proxy and apply the security guidelines above.
