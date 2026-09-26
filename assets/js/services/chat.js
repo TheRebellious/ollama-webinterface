@@ -1,7 +1,7 @@
-import { post } from "../api/client.js";
+import { post, postWithRetry } from "../api/client.js";
 import { state } from "../state.js";
 import { el } from "../ui/elements.js";
-import { setBusy } from "../ui/status.js";
+import { setBusy, setStatus } from "../ui/status.js";
 import { effectiveContextSize } from "../ui/settings.js";
 import { renderAttachments, buildDisplayContent, buildMessageContent } from "./files.js";
 import { renderMessages } from "../ui/chat.js";
@@ -20,6 +20,9 @@ export async function sendPrompt() {
   }
 
   setBusy(true);
+
+  // FG-004: Offline detection - show status on network errors
+  window.addEventListener("offline", () => setStatus("warning", "Network disconnected"), { once: true });
 
   // Push user message
   const userDisplay = buildDisplayContent(prompt);
@@ -51,7 +54,8 @@ export async function sendPrompt() {
 
   let reader = null;
   try {
-    const response = await post("/api/chat", {
+    // FG-004: Use retry wrapper for chat requests
+    const response = await postWithRetry("/api/chat", {
       model: el.model.value,
       messages,
       stream: true,
@@ -60,6 +64,16 @@ export async function sendPrompt() {
         num_ctx: effectiveContextSize(),
       },
     });
+
+    if (!response) {
+      assistant.content = assistant.content
+        ? `${assistant.content}\n\n[Generation interrupted: Network unavailable after retries]`
+        : "Network unavailable - request failed after retries";
+      renderMessages();
+      saveCurrentConversation();
+      setBusy(false);
+      return;
+    }
 
     if (!response.body) {
       throw new Error("No response body received from server");
