@@ -1,4 +1,4 @@
-import { get, post } from "../api/client.js";
+import { get, post, fetchWithRetry } from "../api/client.js";
 import { el } from "../ui/elements.js";
 import { setBusy, setModelRuntime, setStatus } from "../ui/status.js";
 import { applyDetectedContext } from "../ui/settings.js";
@@ -22,8 +22,11 @@ export function invalidateModelCaches() {
  * Fetch names of currently loaded/running models in Ollama memory.
  */
 export async function fetchRunningModelNames() {
+  const response = await fetchWithRetry("/api/ps");
+  if (!response) return [];
+  
   try {
-    const data = await get("/api/ps");
+    const data = await response.json();
     return data.models?.map((model) => model.name).filter(Boolean) || [];
   } catch {
     return [];
@@ -32,9 +35,17 @@ export async function fetchRunningModelNames() {
 
 /**
  * Update UI indicating whether the selected model is currently in memory.
+ * FG-004: Uses retry wrapper with offline detection.
  */
 export async function loadRunningModels() {
-  if (!el.model.value) return setModelRuntime("", "No model selected");
+  if (!el.model.value) {
+    setModelRuntime("", "No model selected");
+    return;
+  }
+
+  // FG-004: Offline detection
+  window.addEventListener("offline", () => setStatus("warning", "Network disconnected"), { once: true });
+
   const names = await fetchRunningModelNames();
   setModelRuntime(
     names.includes(el.model.value) ? "ok" : "",
@@ -44,10 +55,14 @@ export async function loadRunningModels() {
 
 /**
  * Load available Ollama models, using cached list if within TTL unless forceRefresh is true.
+ * FG-004: Uses retry wrapper for network requests with offline detection.
  *
  * @param {boolean} forceRefresh - If true, bypasses in-memory cache.
  */
 export async function loadModels(forceRefresh = false) {
+  // FG-004: Offline detection
+  window.addEventListener("offline", () => setStatus("warning", "Network disconnected"), { once: true });
+
   setStatus("", "Checking server...");
   const previous = el.model.value;
   el.model.innerHTML = "";
@@ -63,7 +78,10 @@ export async function loadModels(forceRefresh = false) {
     if (!forceRefresh && cache.tags.data && now - cache.tags.timestamp < CACHE_TTL_MS) {
       tags = cache.tags.data;
     } else {
-      tags = await get("/api/tags");
+      const response = await fetchWithRetry("/api/tags");
+      if (!response) throw new Error("Failed to fetch models");
+      
+      tags = await response.json();
       cache.tags = { data: tags, timestamp: now };
     }
 
@@ -90,7 +108,9 @@ export async function loadModels(forceRefresh = false) {
     setStatus("ok", "Connected");
 
     await Promise.all([loadRunningModels(), loadModelContext()]);
-  } catch {
+  } catch (error) {
+    console.error("Failed to load models:", error);
+    // FG-004: Offline detection already handled with online/offline events and retry wrapper
     setStatus("bad", "Ollama unavailable");
     el.activeModel.textContent = "Cannot reach Ollama";
     setModelRuntime("bad", "Runtime unavailable");
@@ -102,6 +122,7 @@ export async function loadModels(forceRefresh = false) {
 /**
  * Load and apply context window limits and hardware recommendations for the selected model.
  * Uses cached result if within TTL (PE-001).
+ * FG-004: Uses retry wrapper for network requests.
  *
  * @param {boolean} forceRefresh - If true, bypasses context recommendation cache.
  */
@@ -119,7 +140,13 @@ export async function loadModelContext(forceRefresh = false) {
   }
 
   try {
-    const response = await post("/api/context-recommendation", { model });
+    const response = await fetchWithRetry("/api/context-recommendation", {
+      body: JSON.stringify({ model }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response) throw new Error("Network error");
+    
     const data = await response.json();
     cache.context.set(model, {
       recommended: data.recommendedContext,
@@ -128,9 +155,16 @@ export async function loadModelContext(forceRefresh = false) {
       timestamp: now,
     });
     applyDetectedContext(data.recommendedContext, data.modelContext, data.source);
-  } catch {
+  } catch (error) {
+    // Try fallback to /api/show for context extraction
     try {
-      const response = await post("/api/show", { model });
+      const response = await fetchWithRetry("/api/show", {
+        body: JSON.stringify({ model }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!response) throw new Error("Network error");
+      
       const data = await response.json();
       const context = extractContextTokens(data);
       cache.context.set(model, {
@@ -140,7 +174,8 @@ export async function loadModelContext(forceRefresh = false) {
         timestamp: now,
       });
       applyDetectedContext(context, context, "model");
-    } catch {
+    } catch (fallbackError) {
+      console.error("Failed to load context:", fallbackError);
       applyDetectedContext(null, null);
     }
   }
