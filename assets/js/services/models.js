@@ -141,6 +141,7 @@ export async function loadModelContext(forceRefresh = false) {
 
   try {
     const response = await fetchWithRetry("/api/context-recommendation", {
+      method: "POST",
       body: JSON.stringify({ model }),
       headers: { "Content-Type": "application/json" },
     });
@@ -159,6 +160,7 @@ export async function loadModelContext(forceRefresh = false) {
     // Try fallback to /api/show for context extraction
     try {
       const response = await fetchWithRetry("/api/show", {
+        method: "POST",
         body: JSON.stringify({ model }),
         headers: { "Content-Type": "application/json" },
       });
