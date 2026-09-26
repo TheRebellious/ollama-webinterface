@@ -27,6 +27,13 @@ class ServerConfig:
     debug_shutdown: bool
     upload_max_bytes: int
     log_path: Path
+    # Optional authentication token (SE-001). When set, all /api/* requests
+    # must carry an Authorization: Bearer <token> header.
+    auth_token: str | None
+    # Rate limiting (SE-003). 0 = disabled.
+    rate_limit_per_minute: int
+    # CORS allowed origin (SE-005). "*" = any origin, "" = disabled.
+    cors_origin: str
 
 
 def parse_args():
@@ -43,6 +50,20 @@ def parse_args():
         "--debug-shutdown",
         action="store_true",
         help="Show a UI button that stops this server. Use only while debugging.",
+    )
+    parser.add_argument(
+        "--auth-token",
+        help="Require this Bearer token on all /api/* requests (SE-001).",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        type=int,
+        dest="rate_limit_per_minute",
+        help="Max API requests per IP per minute. 0 disables rate limiting.",
+    )
+    parser.add_argument(
+        "--cors-origin",
+        help="Value for Access-Control-Allow-Origin header. Use '*' to allow any origin.",
     )
     return parser.parse_args()
 
@@ -72,6 +93,26 @@ def build_config(args) -> ServerConfig:
         DEFAULT_LOG_PATH,
     )
 
+    # Security options — all default to "off" for backwards compatibility
+    auth_token = first_value(
+        getattr(args, "auth_token", None),
+        os.getenv("OLLAMA_CONSOLE_AUTH_TOKEN"),
+        file_config.get("auth_token"),
+        None,
+    )
+    rate_limit_per_minute = int(first_value(
+        getattr(args, "rate_limit_per_minute", None),
+        parse_int(os.getenv("OLLAMA_CONSOLE_RATE_LIMIT")),
+        file_config.get("rate_limit_per_minute"),
+        0,
+    ))
+    cors_origin = str(first_value(
+        getattr(args, "cors_origin", None),
+        os.getenv("OLLAMA_CONSOLE_CORS_ORIGIN"),
+        file_config.get("cors_origin"),
+        "",
+    ))
+
     return ServerConfig(
         host=str(host),
         port=int(port),
@@ -83,6 +124,9 @@ def build_config(args) -> ServerConfig:
         debug_shutdown=debug_shutdown,
         upload_max_bytes=int(upload_max_mb) * 1024 * 1024,
         log_path=resolve_log_path(log_path, Path(args.config)),
+        auth_token=auth_token if auth_token else None,
+        rate_limit_per_minute=rate_limit_per_minute,
+        cors_origin=cors_origin,
     )
 
 
@@ -100,6 +144,7 @@ def load_config_file(path: Path):
 
     allowed_keys = {
         "host", "port", "ollama_url", "debug_shutdown", "upload_max_mb", "log_file",
+        "auth_token", "rate_limit_per_minute", "cors_origin",
     }
     unknown_keys = sorted(set(data) - allowed_keys)
     if unknown_keys:
