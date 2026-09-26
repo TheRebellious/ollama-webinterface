@@ -1,7 +1,7 @@
 import { el } from "./ui/elements.js";
 import { state } from "./state.js";
 import { setSettingsOpen, setSidebarCollapsed, setStatus } from "./ui/status.js";
-import { effectiveContextSize, updateSettingRanges } from "./ui/settings.js";
+import { effectiveContextSize, updateSettingRanges, loadPreferences } from "./ui/settings.js";
 import { renderMessages } from "./ui/chat.js";
 import {
   createConversation,
@@ -65,12 +65,28 @@ el.newConversation.addEventListener("click", () => {
 
 el.deleteConversation.addEventListener("click", deleteCurrentConversation);
 
+el.exportConversations.addEventListener("click", exportConversations);
+
+el.importConversations.addEventListener("click", (event) =>
+  importConversations(event)
+);
+
 el.refreshModels.addEventListener("click", () => loadModels(true));
 el.refreshSystem.addEventListener("click", loadSystemInfo);
 
 el.temperature.addEventListener("input", updateSettingRanges);
-el.contextMode.addEventListener("change", updateSettingRanges);
-el.context.addEventListener("input", updateSettingRanges);
+el.contextMode.addEventListener("change", () => {
+  updateSettingRanges();
+  savePreferences();
+});
+el.context.addEventListener("input", () => {
+  updateSettingRanges();
+  savePreferences();
+});
+el.systemPrompt.addEventListener("input", savePreferences);
+
+// Load persisted preferences on app startup
+loadPreferences();
 
 el.fileInput.addEventListener("change", (event) =>
   addFiles(Array.from(event.target.files || []))

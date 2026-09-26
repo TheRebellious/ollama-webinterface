@@ -54,3 +54,56 @@ export function applyDetectedContext(tokens, modelMax = tokens, source = "model"
   }
   updateSettingRanges();
 }
+
+/**
+ * Persist current settings values to localStorage under the preferences storage key.
+ */
+export function savePreferences() {
+  const prefs = {
+    temperature: el.temperature.value,
+    contextMode: el.contextMode.value,
+    context: el.context.value,
+    systemPrompt: el.systemPrompt.value,
+  };
+  try {
+    localStorage.setItem(
+      "ollama-console-preferences",
+      JSON.stringify(prefs)
+    );
+  } catch (e) {
+    console.warn("Could not persist preferences:", e);
+  }
+}
+
+/**
+ * Load persisted preferences from localStorage and apply to settings UI.
+ * Returns boolean indicating whether preferences were loaded.
+ *
+ * @returns {boolean} Whether preferences were successfully loaded.
+ */
+export function loadPreferences() {
+  try {
+    const stored = localStorage.getItem("ollama-console-preferences");
+    if (!stored) {
+      return false;
+    }
+    const prefs = JSON.parse(stored);
+    if (prefs.temperature) {
+      el.temperature.value = String(prefs.temperature);
+    }
+    if (prefs.contextMode) {
+      el.contextMode.value = prefs.contextMode;
+    }
+    if (prefs.context) {
+      el.context.value = String(prefs.context);
+    }
+    if (prefs.systemPrompt) {
+      el.systemPrompt.value = prefs.systemPrompt;
+    }
+    updateSettingRanges();
+    return true;
+  } catch (e) {
+    console.warn("Could not load preferences:", e);
+    return false;
+  }
+}
