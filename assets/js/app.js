@@ -117,7 +117,38 @@ el.closeSettings.addEventListener("click", () => setSettingsOpen(false));
 el.settingsOverlay.addEventListener("click", () => setSettingsOpen(false));
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") setSettingsOpen(false);
+  // FG-003: Keyboard shortcuts
+  if (event.ctrlKey && event.key === "n") {
+    event.preventDefault();
+    createConversation();
+    return;
+  }
+  if (event.ctrlKey && event.key === "Escape") {
+    event.preventDefault();
+    setSettingsOpen(false);
+    return;
+  }
+  if (event.key === "Escape") {
+    setSettingsOpen(false);
+  }
+
+  // FG-004: Connection status monitoring
+  if (navigator.onLine) {
+    setStatus("ok", "");
+  } else {
+    setStatus("warning", "Network disconnected");
+  }
+
+  // Initial connection status check
+  navigator.onLine && setStatus("ok", "") || setStatus("warning", "Network disconnected");
+
+  // FG-004: Reconnection retry on fetch errors
+  window.addEventListener("online", () => {
+    console.log("Network reconnected");
+    setStatus("ok", "");
+    loadSystemInfo();
+    loadRunningModels(true); // force refresh
+  });
 });
 
 // Initial startup

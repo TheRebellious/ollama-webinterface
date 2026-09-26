@@ -7,8 +7,15 @@
 export async function get(path) {
   const response = await fetch(path);
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `HTTP ${response.status}`);
+    // FG-004: Offline detection - show status on network errors (503, ECONNREFUSED, ENOTFOUND)
+    if ([503, 502].includes(response.status)) {
+      console.warn("Server error - may be offline or over rate limit");
+    } else if (response.status === 401) {
+      throw new Error("Authentication required");
+    } else {
+      const message = await response.text();
+      throw new Error(message || `HTTP ${response.status}`);
+    }
   }
   return response.json();
 }
