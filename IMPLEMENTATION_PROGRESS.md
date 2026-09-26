@@ -1,13 +1,14 @@
 # Audit Implementation Progress
 
 ## Workflow State
-- Current Phase: Phase 6 (Feature additions)
-- Last Completed Phase: Phase 5 (Testing)
+- Current Phase: Phase 7 (Documentation)
+- Last Completed Phase: Phase 6 (Feature additions)
 - Phase 1 Commit: `261d325`
 - Phase 2 Commit: `23df470`
 - Phase 3 Commit: `bfb5f4e`
 - Phase 4 Commit: `51c4f4f`
-- Phase 5 Commit: (Pending creation)
+- Phase 5 Commit: `a8c9f21`
+- Phase 6 Commit: `7b6423f`
 
 ---
 
@@ -57,14 +58,14 @@
 | TE-003 | VERIFIED | `tests/test_ollama_proxy.py`, `tests/test_security.py` | Differentiated error cases (timeouts, network drops, malformed JSON, auth failures) | Error tests in test_ollama_proxy & test_security |
 
 ### 3.6 Feature Gaps (Phase 6)
-| ID | Status | Files Affected | Notes |
-|---|---|---|---|
-| FG-001 | VERIFIED | `assets/js/ui/conversations.js` | Export to JSON with metadata, import with validation/deduplication |
-| FG-002 | VERIFIED | `assets/js/ui/settings.js` | Persist temperature/context/systemPrompt on input; restore on startup |
-| FG-003 | VERIFIED | `assets/js/app.js`, `assets/js/ui/elements.js` | Ctrl+N (new conversation), Ctrl+Esc (close settings) |
-| FG-004 | IN_PROGRESS | `assets/js/api/client.js`, `assets/js/ui/status.js`, `assets/js/app.js` | navigator.onLine monitoring, online/offline handlers, reconnect on 502/503; needs full reconnection retry logic with exponential backoff |
-| FG-005 | NOT_APPLICABLE | UI | Sharing links out of scope for local offline tool |
-| FG-006 | NOT_STARTED | `ollama_console/handler.py` | Optional basic metrics/session stats endpoint |
+| ID | Status | Files Affected | Notes | Tests/Commits |
+|---|---|---|---|---|
+| FG-001 | VERIFIED | `assets/js/ui/conversations.js` | Export to JSON with metadata, import with validation/deduplication | See conversations.js export/import functions |
+| FG-002 | VERIFIED | `assets/js/ui/settings.js` | Persist temperature/context/systemPrompt on input; restore on startup | Verified in settings persistence |
+| FG-003 | VERIFIED | `assets/js/app.js`, `assets/js/ui/elements.js` | Ctrl+N (new conversation), Ctrl+Esc (close settings) | Verified keyboard events |
+| FG-004 | VERIFIED | `assets/js/api/client.js`, `assets/js/services/chat.js`, `assets/js/services/models.js`, `assets/js/ui/status.js` | navigator.onLine monitoring, online/offline handlers, reconnect on 502/503 with exponential backoff retry; full integration complete | Commits 393d6e4, 6312ac5, 7b6423f |
+| FG-005 | NOT_APPLICABLE | UI | Sharing links out of scope for local offline tool | Not required |
+| FG-006 | NOT_STARTED | `ollama_console/handler.py` | Optional basic metrics/session stats endpoint | Pending Phase 7 |
 
 ### 3.7 Documentation Issues (Phase 7)
 | ID | Status | Files Affected | Notes |
